@@ -43,7 +43,7 @@ namespace ProceduralDungeon
 
         public void RefreshBounds()
         {
-            hasBounds = false;
+            InvalidateDungeonBounds();
             if (floorTilemap == null || floorTilemap.GetUsedTilesCount() == 0) return;
             if (cameraComponent == null && !TryGetComponent(out cameraComponent)) return;
             cachedCellBounds = floorTilemap.cellBounds;
@@ -54,6 +54,31 @@ namespace ProceduralDungeon
             dungeonMin = new Vector2(Mathf.Min(min.x, max.x), Mathf.Min(min.y, max.y));
             dungeonMax = new Vector2(Mathf.Max(min.x, max.x), Mathf.Max(min.y, max.y));
             hasBounds = true;
+        }
+
+        public void RefreshDungeonBounds()
+        {
+            RefreshBounds();
+            followVelocity = Vector3.zero;
+            if (target == null) return;
+            if (cameraComponent == null && !TryGetComponent(out cameraComponent)) return;
+
+            float z = transform.position.z;
+            Vector3 targetPosition = new Vector3(target.position.x, target.position.y, z);
+            if (clampToDungeonBounds && hasBounds) targetPosition = Clamp(targetPosition, z);
+            targetPosition.z = z;
+            transform.position = targetPosition;
+        }
+
+        public void InvalidateDungeonBounds()
+        {
+            hasBounds = false;
+            cachedCellBounds = default;
+            cachedAspect = -1f;
+            cachedOrthographicSize = -1f;
+            dungeonMin = Vector2.zero;
+            dungeonMax = Vector2.zero;
+            followVelocity = Vector3.zero;
         }
 
         private void RefreshBoundsIfNeeded()

@@ -16,13 +16,23 @@ namespace ProceduralDungeon
 
         private void Start()
         {
+            // DungeonRuntimeController owns startup generation when it is present.
+            if (TryGetComponent(out DungeonRuntimeController _)) return;
+
             if (!TryPlacePlayer(out string error))
             {
                 DisablePlayerController();
                 Debug.LogError($"[DungeonPlayerSpawner] Runtime spawn rejected: {error}", this);
                 return;
             }
+
+            EnablePlayerController();
             Debug.Log("[DungeonPlayerSpawner] Placed PrototypePlayer at the deterministic start room.", this);
+        }
+
+        public bool TryPlacePlayerAtStart()
+        {
+            return TryPlacePlayer(out _);
         }
 
         [ContextMenu("Place Player At Start")]
@@ -32,6 +42,7 @@ namespace ProceduralDungeon
             if (!Application.isPlaying && prototypePlayer != null) Undo.RecordObject(prototypePlayer, "Place Player At Start");
 #endif
             if (!TryPlacePlayer(out string error)) { Debug.LogWarning($"[DungeonPlayerSpawner] Placement rejected: {error}", this); return; }
+            if (Application.isPlaying) EnablePlayerController();
 #if UNITY_EDITOR
             if (!Application.isPlaying)
             {
@@ -63,7 +74,14 @@ namespace ProceduralDungeon
             body.linearVelocity = Vector2.zero; body.position = new Vector2(world.x, world.y);
             TopDownPlayerController controller = prototypePlayer.GetComponent<TopDownPlayerController>();
             if (controller == null) { error = "TopDownPlayerController is missing."; return false; }
-            controller.enabled = true; error = string.Empty; return true;
+            error = string.Empty; return true;
+        }
+
+        private void EnablePlayerController()
+        {
+            if (prototypePlayer == null) return;
+            TopDownPlayerController controller = prototypePlayer.GetComponent<TopDownPlayerController>();
+            if (controller != null) controller.enabled = true;
         }
 
         private void DisablePlayerController()

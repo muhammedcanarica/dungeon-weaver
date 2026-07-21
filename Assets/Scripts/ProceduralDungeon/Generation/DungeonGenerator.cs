@@ -29,6 +29,11 @@ namespace ProceduralDungeon
         public int MaxPlacementAttempts => maxPlacementAttempts;
         public IReadOnlyList<RoomData> Rooms => rooms;
 
+        public void SetSeed(int newSeed)
+        {
+            seed = newSeed;
+        }
+
         [ContextMenu("Generate Dungeon")]
         public void Generate()
         {
