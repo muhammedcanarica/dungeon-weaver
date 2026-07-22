@@ -2,7 +2,7 @@
 
 Unity 6 ile geliştirilen, seed tabanlı ve tekrar üretilebilir bir 2D procedural dungeon portfolyo prototipidir.
 
-## Mevcut durum — Aşama 8
+## Mevcut durum — Aşama 9
 
 Proje şu anda:
 
@@ -22,6 +22,9 @@ Proje şu anda:
 - Her runtime üretiminden sonra oyuncuyu yeniden doğurur ve kamera sınırlarını yeniler.
 - Oyuncunun oda, koridor veya dungeon dışındaki runtime alan durumunu hücre tabanlı olarak takip eder.
 - Room enter/exit ve alan değişimi olaylarını doorway/connection bilgisiyle ilişkilendirir.
+- Her oda için generation verisinden ayrı `Unvisited`, `Active` veya `Visited` runtime exploration state'i tutar.
+- Oda ziyaret sayısını, 1 tabanlı ilk keşif sırasını ve son giriş/çıkış connection bilgisini kaydeder.
+- Room state değişikliklerini area tracker olaylarından event tabanlı olarak günceller.
 
 Varsayılan `12345` seed değeriyle 15 oda üretilir; başlangıç odası `13`, boss odası `7` olur.
 
@@ -56,17 +59,19 @@ Assets/Scripts/ProceduralDungeon/
   Generation/     Oda, graph, koridor, doorway ve oda rolü üretimi
   Rendering/      Tilemap zemin/duvar çizimi
   Player/         Oyuncu hareketi, spawn ve kamera takibi
-  Runtime/        Üretim hattı, alan takibi, geçiş olayları ve uGUI paneli
+  Runtime/        Üretim hattı, alan/room state takibi, geçiş olayları ve uGUI paneli
   Visualization/  Scene görünümü Gizmo çizimleri
 ```
 
 ## Runtime üretim akışı
 
-**Generate** işlemi eski tracker, Tilemap, rol, doorway, koridor, graph ve oda verisini güvenli sırayla temizler. Ardından oda üretimi → graph → koridor → doorway verisi → Tilemap → start/boss rolleri → runtime area lookup → player spawn → kamera bounds → ilk alan değerlendirmesi sırasını uygular. Her adım doğrulanır; başarısızlıkta sonraki adıma geçilmez, yarım veri temizlenir ve player hareketi kapalı tutulur.
+**Generate** işlemi eski area tracker, room state, Tilemap, rol, doorway, koridor, graph ve oda verisini güvenli sırayla temizler. Ardından oda üretimi → graph → koridor → doorway verisi → Tilemap → start/boss rolleri → runtime area lookup → room state kayıtları → player spawn → kamera bounds → ilk alan değerlendirmesi sırasını uygular. Her adım doğrulanır; başarısızlıkta sonraki adıma geçilmez, yarım veri temizlenir ve player hareketi kapalı tutulur.
 
 Doorway kayıtları gerçek bir kapı GameObject'i veya oynanış mekaniği değildir. Her bağlantının oda sınırındaki giriş hücresini, koridora doğru kardinal yönünü ve ilk dış koridor hücresini açık veri olarak tutar; sonraki kapı, geçiş ve içerik yerleşimi aşamalarına deterministik bir temel sağlar. Scene görünümündeki cyan gizmo işaretleri bu veriyi gösterir; Game görünümüne ek bir işaret çizilmez.
 
 Runtime area tracker, player konumunu Grid hücresine çevirerek önce oda, sonra koridor lookup'unda arar. Gerçek alan değişimlerinde `RoomEntered`, `RoomExited` ve `AreaChanged` olayları üretir; doorway üzerinden yapılan geçişlerde ilgili connection bilgisini taşır. Bu yalnızca takip ve olay altyapısıdır; kapı, encounter veya minimap sistemi eklemez.
+
+Runtime room state controller, area tracker'ın `AreaChanged` olayını kullanır. İlk girişte keşif sayısını ve sırasını atar; oda giriş/çıkışlarında visit count ile connection geçmişini günceller. Bu katman henüz kapı, encounter, düşman, room-cleared, minimap veya save/load sistemi değildir.
 
 ## Yol haritası
 
@@ -74,6 +79,7 @@ Runtime area tracker, player konumunu Grid hücresine çevirerek önce oda, sonr
 - [x] Aşama 6 — Runtime seed girişi ve tek düğmeli generation flow
 - [x] Aşama 7 — Deterministik doorway/entrance verisi ve Scene gizmo doğrulaması
 - [x] Aşama 8 — Runtime room/corridor takibi ve geçiş olayları
+- [x] Aşama 9 — Runtime room state ve exploration verisi
 
 ## Kontroller
 
@@ -86,4 +92,4 @@ Runtime area tracker, player konumunu Grid hücresine çevirerek önce oda, sonr
 
 ## Kapsam
 
-Bu aşamada düşman, encounter, minimap, savaş, fiziksel/etkileşimli kapı, anahtar veya envanter sistemi bulunmaz. Prototip deterministik üretim hattı, doorway verisi, runtime alan takibi, oynanabilir hareket, fizik çarpışması ve kamera takibine odaklanır.
+Bu aşamada düşman, encounter, minimap, room-cleared, save/load, savaş, fiziksel/etkileşimli kapı, anahtar veya envanter sistemi bulunmaz. Prototip deterministik üretim hattı, doorway verisi, runtime alan ve exploration state takibi, oynanabilir hareket, fizik çarpışması ve kamera takibine odaklanır.

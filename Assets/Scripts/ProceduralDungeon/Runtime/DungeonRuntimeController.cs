@@ -6,6 +6,7 @@ namespace ProceduralDungeon
     [RequireComponent(typeof(DungeonGenerator), typeof(DungeonGraphBuilder), typeof(DungeonCorridorBuilder))]
     [RequireComponent(typeof(DungeonDoorwayBuilder))]
     [RequireComponent(typeof(DungeonAreaTracker))]
+    [RequireComponent(typeof(DungeonRoomStateController))]
     [RequireComponent(typeof(DungeonTilemapRenderer), typeof(DungeonRoomRoleAssigner), typeof(DungeonPlayerSpawner))]
     public sealed class DungeonRuntimeController : MonoBehaviour
     {
@@ -20,6 +21,7 @@ namespace ProceduralDungeon
         private DungeonCorridorBuilder corridorBuilder;
         private DungeonDoorwayBuilder doorwayBuilder;
         private DungeonAreaTracker areaTracker;
+        private DungeonRoomStateController roomStateController;
         private DungeonTilemapRenderer tilemapRenderer;
         private DungeonRoomRoleAssigner roleAssigner;
         private DungeonPlayerSpawner playerSpawner;
@@ -68,6 +70,7 @@ namespace ProceduralDungeon
                 StopPlayerBody();
 
                 areaTracker.ClearTracking();
+                roomStateController.ClearStates();
                 tilemapRenderer.ClearDungeonTilemap();
                 roleAssigner.ClearRoomRoles();
                 doorwayBuilder.ClearDoorways();
@@ -105,12 +108,21 @@ namespace ProceduralDungeon
                     return FailGeneration("area lookup building");
                 LogStep($"Built area lookup for {areaTracker.TotalLookupCellCount} cells.");
 
+                if (!roomStateController.InitializeStates()
+                    || !roomStateController.HasRuntimeStates
+                    || roomStateController.TotalRoomCount != generator.Rooms.Count)
+                    return FailGeneration("room state initialization");
+                LogStep($"Initialized runtime state for {roomStateController.TotalRoomCount} rooms.");
+
                 if (!playerSpawner.TryPlacePlayerAtStart()) return FailGeneration("player spawning");
                 cameraFollow.RefreshDungeonBounds();
                 if (!areaTracker.RefreshPlayerArea()
                     || !areaTracker.IsInsideRoom
                     || areaTracker.CurrentRoomId != roleAssigner.StartRoomId)
                     return FailGeneration("initial area tracking");
+                if (!ValidateInitialRoomState() || !roomStateController.CaptureInitialStateSignature())
+                    return FailGeneration("initial room state validation");
+                LogStep($"Captured initial room state signature {roomStateController.InitialStateSignature}.");
                 SetPlayerMovement(true);
 
                 lastGeneratedSeed = requestedSeed;
@@ -183,6 +195,7 @@ namespace ProceduralDungeon
         private void ClearGeneratedData()
         {
             areaTracker?.ClearTracking();
+            roomStateController?.ClearStates();
             tilemapRenderer?.ClearDungeonTilemap();
             roleAssigner?.ClearRoomRoles();
             doorwayBuilder?.ClearDoorways();
@@ -211,6 +224,7 @@ namespace ProceduralDungeon
             if (corridorBuilder == null) corridorBuilder = GetComponent<DungeonCorridorBuilder>();
             if (doorwayBuilder == null) doorwayBuilder = GetComponent<DungeonDoorwayBuilder>();
             if (areaTracker == null) areaTracker = GetComponent<DungeonAreaTracker>();
+            if (roomStateController == null) roomStateController = GetComponent<DungeonRoomStateController>();
             if (tilemapRenderer == null) tilemapRenderer = GetComponent<DungeonTilemapRenderer>();
             if (roleAssigner == null) roleAssigner = GetComponent<DungeonRoomRoleAssigner>();
             if (playerSpawner == null) playerSpawner = GetComponent<DungeonPlayerSpawner>();
@@ -219,9 +233,22 @@ namespace ProceduralDungeon
         private bool HasRequiredReferences()
         {
             return generator != null && graphBuilder != null && corridorBuilder != null && doorwayBuilder != null
-                && areaTracker != null
+                && areaTracker != null && roomStateController != null
                 && tilemapRenderer != null && roleAssigner != null && playerSpawner != null
                 && playerController != null && cameraFollow != null;
+        }
+
+        private bool ValidateInitialRoomState()
+        {
+            if (roomStateController.CurrentActiveRoomId != roleAssigner.StartRoomId
+                || roomStateController.DiscoveredRoomCount != 1
+                || !roomStateController.TryGetRoomState(roleAssigner.StartRoomId,
+                    out DungeonRoomRuntimeState startState))
+                return false;
+            return startState.RoomRole == DungeonRoomRole.Start
+                && startState.ExplorationState == RoomExplorationState.Active
+                && startState.VisitCount == 1
+                && startState.FirstVisitOrder == 1;
         }
 
         private void LogStep(string message)
