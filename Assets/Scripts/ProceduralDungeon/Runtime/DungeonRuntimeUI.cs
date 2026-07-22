@@ -14,7 +14,10 @@ namespace ProceduralDungeon
 
         private void Awake()
         {
-            if (seedInput != null) seedInput.contentType = InputField.ContentType.IntegerNumber;
+            if (seedInput == null) return;
+
+            seedInput.contentType = InputField.ContentType.Standard;
+            seedInput.characterValidation = InputField.CharacterValidation.None;
         }
 
         private void OnEnable()
