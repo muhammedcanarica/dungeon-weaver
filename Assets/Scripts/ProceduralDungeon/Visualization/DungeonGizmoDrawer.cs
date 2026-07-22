@@ -17,9 +17,11 @@ namespace ProceduralDungeon
         private static readonly Color ExtraConnectionColor = new Color(1f, 0.55f, 0.15f, 1f);
         private static readonly Color PrimaryCorridorColor = new Color(0.9f, 0.35f, 0.8f, 1f);
         private static readonly Color ExtraCorridorColor = new Color(1f, 0.85f, 0.2f, 1f);
+        private static readonly Color DoorwayColor = new Color(0.1f, 1f, 0.85f, 1f);
         private static readonly Color StartRoomColor = new Color(0.15f, 1f, 0.25f, 0.22f);
         private static readonly Color BossRoomColor = new Color(1f, 0.15f, 0.15f, 0.22f);
         private const float CenterMarkerRadius = 0.15f;
+        [SerializeField] private bool showDoorways = true;
 
         private void OnDrawGizmos()
         {
@@ -38,6 +40,7 @@ namespace ProceduralDungeon
             DungeonRoomRoleAssigner roles = GetComponent<DungeonRoomRoleAssigner>();
             DrawConnections(generator, GetComponent<DungeonGraphBuilder>());
             DrawCorridors(GetComponent<DungeonCorridorBuilder>());
+            if (showDoorways) DrawDoorways(GetComponent<DungeonDoorwayBuilder>());
             DrawRoleHighlights(generator, roles);
             DrawRooms(generator, roles);
 
@@ -103,9 +106,22 @@ namespace ProceduralDungeon
                 CorridorData corridor = builder.Corridors[i];
                 Gizmos.color = corridor.IsPrimaryConnection ? PrimaryCorridorColor : ExtraCorridorColor;
                 for (int p = 1; p < corridor.PathCells.Count; p++) Gizmos.DrawLine(CellCenter(corridor.PathCells[p - 1]), CellCenter(corridor.PathCells[p]));
-                Gizmos.color = Color.white;
-                Gizmos.DrawCube(CellCenter(corridor.StartDoorCell), Vector3.one * 0.3f);
-                Gizmos.DrawCube(CellCenter(corridor.EndDoorCell), Vector3.one * 0.3f);
+            }
+        }
+
+        private static void DrawDoorways(DungeonDoorwayBuilder builder)
+        {
+            if (builder == null || !builder.IsDoorwayDataCurrent) return;
+            Gizmos.color = DoorwayColor;
+            for (int i = 0; i < builder.Doorways.Count; i++)
+            {
+                DoorwayData doorway = builder.Doorways[i];
+                Vector3 center = CellCenter(doorway.EntranceCell);
+                Vector2Int direction = DungeonDoorwayBuilder.DirectionOffset(doorway.OutwardDirection);
+                Vector3 tip = center + new Vector3(direction.x, direction.y, 0f) * 0.45f;
+                Gizmos.DrawWireCube(center, Vector3.one * 0.36f);
+                Gizmos.DrawLine(center, tip);
+                Gizmos.DrawSphere(tip, 0.07f);
             }
         }
 

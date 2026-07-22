@@ -4,6 +4,8 @@ using UnityEngine;
 namespace ProceduralDungeon
 {
     [RequireComponent(typeof(DungeonGenerator), typeof(DungeonGraphBuilder), typeof(DungeonCorridorBuilder))]
+    [RequireComponent(typeof(DungeonDoorwayBuilder))]
+    [RequireComponent(typeof(DungeonAreaTracker))]
     [RequireComponent(typeof(DungeonTilemapRenderer), typeof(DungeonRoomRoleAssigner), typeof(DungeonPlayerSpawner))]
     public sealed class DungeonRuntimeController : MonoBehaviour
     {
@@ -16,6 +18,8 @@ namespace ProceduralDungeon
         private DungeonGenerator generator;
         private DungeonGraphBuilder graphBuilder;
         private DungeonCorridorBuilder corridorBuilder;
+        private DungeonDoorwayBuilder doorwayBuilder;
+        private DungeonAreaTracker areaTracker;
         private DungeonTilemapRenderer tilemapRenderer;
         private DungeonRoomRoleAssigner roleAssigner;
         private DungeonPlayerSpawner playerSpawner;
@@ -63,8 +67,10 @@ namespace ProceduralDungeon
                 SetPlayerMovement(false);
                 StopPlayerBody();
 
+                areaTracker.ClearTracking();
                 tilemapRenderer.ClearDungeonTilemap();
                 roleAssigner.ClearRoomRoles();
+                doorwayBuilder.ClearDoorways();
                 corridorBuilder.ClearCorridors();
                 graphBuilder.ClearGraph();
                 generator.Clear();
@@ -83,6 +89,10 @@ namespace ProceduralDungeon
                 if (!corridorBuilder.IsCorridorDataCurrent) return FailGeneration("corridor building");
                 LogStep($"Built {corridorBuilder.Corridors.Count} corridors.");
 
+                doorwayBuilder.BuildDoorways();
+                if (!doorwayBuilder.IsDoorwayDataCurrent) return FailGeneration("doorway building");
+                LogStep($"Built {doorwayBuilder.Doorways.Count} doorways.");
+
                 tilemapRenderer.RenderDungeonTilemap();
                 if (!tilemapRenderer.IsTilemapCurrent) return FailGeneration("Tilemap rendering");
                 LogStep($"Rendered {tilemapRenderer.FloorCellCount} floor and {tilemapRenderer.WallCellCount} wall cells.");
@@ -91,8 +101,16 @@ namespace ProceduralDungeon
                 if (!roleAssigner.IsRoleDataCurrent) return FailGeneration("room role assignment");
                 LogStep($"Assigned start room {roleAssigner.StartRoomId} and boss room {roleAssigner.BossRoomId}.");
 
+                if (!areaTracker.BuildLookup() || !areaTracker.IsLookupCurrent)
+                    return FailGeneration("area lookup building");
+                LogStep($"Built area lookup for {areaTracker.TotalLookupCellCount} cells.");
+
                 if (!playerSpawner.TryPlacePlayerAtStart()) return FailGeneration("player spawning");
                 cameraFollow.RefreshDungeonBounds();
+                if (!areaTracker.RefreshPlayerArea()
+                    || !areaTracker.IsInsideRoom
+                    || areaTracker.CurrentRoomId != roleAssigner.StartRoomId)
+                    return FailGeneration("initial area tracking");
                 SetPlayerMovement(true);
 
                 lastGeneratedSeed = requestedSeed;
@@ -164,8 +182,10 @@ namespace ProceduralDungeon
 
         private void ClearGeneratedData()
         {
+            areaTracker?.ClearTracking();
             tilemapRenderer?.ClearDungeonTilemap();
             roleAssigner?.ClearRoomRoles();
+            doorwayBuilder?.ClearDoorways();
             corridorBuilder?.ClearCorridors();
             graphBuilder?.ClearGraph();
             generator?.Clear();
@@ -189,6 +209,8 @@ namespace ProceduralDungeon
             if (generator == null) generator = GetComponent<DungeonGenerator>();
             if (graphBuilder == null) graphBuilder = GetComponent<DungeonGraphBuilder>();
             if (corridorBuilder == null) corridorBuilder = GetComponent<DungeonCorridorBuilder>();
+            if (doorwayBuilder == null) doorwayBuilder = GetComponent<DungeonDoorwayBuilder>();
+            if (areaTracker == null) areaTracker = GetComponent<DungeonAreaTracker>();
             if (tilemapRenderer == null) tilemapRenderer = GetComponent<DungeonTilemapRenderer>();
             if (roleAssigner == null) roleAssigner = GetComponent<DungeonRoomRoleAssigner>();
             if (playerSpawner == null) playerSpawner = GetComponent<DungeonPlayerSpawner>();
@@ -196,7 +218,8 @@ namespace ProceduralDungeon
 
         private bool HasRequiredReferences()
         {
-            return generator != null && graphBuilder != null && corridorBuilder != null
+            return generator != null && graphBuilder != null && corridorBuilder != null && doorwayBuilder != null
+                && areaTracker != null
                 && tilemapRenderer != null && roleAssigner != null && playerSpawner != null
                 && playerController != null && cameraFollow != null;
         }

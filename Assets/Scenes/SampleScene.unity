@@ -4962,6 +4962,8 @@ GameObject:
   - component: {fileID: 1074544756}
   - component: {fileID: 1074544755}
   - component: {fileID: 1074544757}
+  - component: {fileID: 1074544758}
+  - component: {fileID: 1074544759}
   m_Layer: 0
   m_Name: DungeonGenerator
   m_TagString: Untagged
@@ -4981,6 +4983,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 31bb3d42a0f469947a95c7fd63c36751, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ProceduralDungeon.DungeonGizmoDrawer
+  showDoorways: 1
 --- !u!114 &1074544750
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5448,6 +5451,196 @@ MonoBehaviour:
   playerController: {fileID: 133902450}
   cameraFollow: {fileID: 519420033}
   logPipelineSteps: 1
+--- !u!114 &1074544758
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1074544748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4918ea586a70447498fd202451e681fd, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::ProceduralDungeon.DungeonDoorwayBuilder
+  doorways:
+  - roomId: 10
+    connectionIndex: 0
+    entranceCell: {x: -18, y: -8}
+    outwardDirection: 1
+    firstCorridorCell: {x: -18, y: -9}
+  - roomId: 12
+    connectionIndex: 0
+    entranceCell: {x: -18, y: -10}
+    outwardDirection: 0
+    firstCorridorCell: {x: -18, y: -9}
+  - roomId: 0
+    connectionIndex: 1
+    entranceCell: {x: 12, y: 1}
+    outwardDirection: 0
+    firstCorridorCell: {x: 12, y: 2}
+  - roomId: 9
+    connectionIndex: 1
+    entranceCell: {x: 12, y: 4}
+    outwardDirection: 1
+    firstCorridorCell: {x: 12, y: 3}
+  - roomId: 1
+    connectionIndex: 2
+    entranceCell: {x: -11, y: 4}
+    outwardDirection: 3
+    firstCorridorCell: {x: -10, y: 4}
+  - roomId: 3
+    connectionIndex: 2
+    entranceCell: {x: -9, y: 4}
+    outwardDirection: 2
+    firstCorridorCell: {x: -10, y: 4}
+  - roomId: 3
+    connectionIndex: 3
+    entranceCell: {x: -6, y: 4}
+    outwardDirection: 3
+    firstCorridorCell: {x: -5, y: 4}
+  - roomId: 5
+    connectionIndex: 3
+    entranceCell: {x: -3, y: 2}
+    outwardDirection: 0
+    firstCorridorCell: {x: -3, y: 3}
+  - roomId: 0
+    connectionIndex: 4
+    entranceCell: {x: 11, y: -1}
+    outwardDirection: 2
+    firstCorridorCell: {x: 10, y: -1}
+  - roomId: 6
+    connectionIndex: 4
+    entranceCell: {x: 8, y: -1}
+    outwardDirection: 3
+    firstCorridorCell: {x: 9, y: -1}
+  - roomId: 6
+    connectionIndex: 5
+    entranceCell: {x: 6, y: 6}
+    outwardDirection: 0
+    firstCorridorCell: {x: 6, y: 7}
+  - roomId: 11
+    connectionIndex: 5
+    entranceCell: {x: 6, y: 8}
+    outwardDirection: 1
+    firstCorridorCell: {x: 6, y: 7}
+  - roomId: 2
+    connectionIndex: 6
+    entranceCell: {x: -15, y: -4}
+    outwardDirection: 2
+    firstCorridorCell: {x: -16, y: -4}
+  - roomId: 10
+    connectionIndex: 6
+    entranceCell: {x: -20, y: -5}
+    outwardDirection: 0
+    firstCorridorCell: {x: -20, y: -4}
+  - roomId: 10
+    connectionIndex: 7
+    entranceCell: {x: -20, y: -5}
+    outwardDirection: 0
+    firstCorridorCell: {x: -20, y: -4}
+  - roomId: 13
+    connectionIndex: 7
+    entranceCell: {x: -20, y: -2}
+    outwardDirection: 1
+    firstCorridorCell: {x: -20, y: -3}
+  - roomId: 1
+    connectionIndex: 8
+    entranceCell: {x: -18, y: 4}
+    outwardDirection: 2
+    firstCorridorCell: {x: -19, y: 4}
+  - roomId: 13
+    connectionIndex: 8
+    entranceCell: {x: -20, y: 4}
+    outwardDirection: 3
+    firstCorridorCell: {x: -19, y: 4}
+  - roomId: 1
+    connectionIndex: 9
+    entranceCell: {x: -15, y: 8}
+    outwardDirection: 0
+    firstCorridorCell: {x: -15, y: 9}
+  - roomId: 14
+    connectionIndex: 9
+    entranceCell: {x: -17, y: 12}
+    outwardDirection: 3
+    firstCorridorCell: {x: -16, y: 12}
+  - roomId: 8
+    connectionIndex: 10
+    entranceCell: {x: -10, y: -13}
+    outwardDirection: 2
+    firstCorridorCell: {x: -11, y: -13}
+  - roomId: 12
+    connectionIndex: 10
+    entranceCell: {x: -15, y: -13}
+    outwardDirection: 3
+    firstCorridorCell: {x: -14, y: -13}
+  - roomId: 0
+    connectionIndex: 11
+    entranceCell: {x: 12, y: -2}
+    outwardDirection: 1
+    firstCorridorCell: {x: 12, y: -3}
+  - roomId: 4
+    connectionIndex: 11
+    entranceCell: {x: 10, y: -8}
+    outwardDirection: 3
+    firstCorridorCell: {x: 11, y: -8}
+  - roomId: 5
+    connectionIndex: 12
+    entranceCell: {x: -1, y: 2}
+    outwardDirection: 3
+    firstCorridorCell: {x: 0, y: 2}
+  - roomId: 6
+    connectionIndex: 12
+    entranceCell: {x: 4, y: 2}
+    outwardDirection: 2
+    firstCorridorCell: {x: 3, y: 2}
+  - roomId: 0
+    connectionIndex: 13
+    entranceCell: {x: 12, y: -2}
+    outwardDirection: 1
+    firstCorridorCell: {x: 12, y: -3}
+  - roomId: 7
+    connectionIndex: 13
+    entranceCell: {x: 15, y: -10}
+    outwardDirection: 2
+    firstCorridorCell: {x: 14, y: -10}
+  - roomId: 1
+    connectionIndex: 14
+    entranceCell: {x: -15, y: 1}
+    outwardDirection: 1
+    firstCorridorCell: {x: -15, y: 0}
+  - roomId: 2
+    connectionIndex: 14
+    entranceCell: {x: -15, y: -1}
+    outwardDirection: 0
+    firstCorridorCell: {x: -15, y: 0}
+  - roomId: 2
+    connectionIndex: 15
+    entranceCell: {x: -15, y: -4}
+    outwardDirection: 2
+    firstCorridorCell: {x: -16, y: -4}
+  - roomId: 13
+    connectionIndex: 15
+    entranceCell: {x: -22, y: -2}
+    outwardDirection: 1
+    firstCorridorCell: {x: -22, y: -3}
+  builtSourceSignature: -4935244729961920777
+  doorwaySignature: -7699937876028604755
+  hasBuiltDoorways: 1
+--- !u!114 &1074544759
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1074544748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a181e0047a6be9849a3379e542aa7356, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::ProceduralDungeon.DungeonAreaTracker
+  grid: {fileID: 801722560}
+  player: {fileID: 133902454}
 --- !u!1 &1238119777
 GameObject:
   m_ObjectHideFlags: 0
