@@ -2,7 +2,7 @@
 
 Unity 6 ile geliştirilen, seed tabanlı ve tekrar üretilebilir bir 2D procedural dungeon portfolyo prototipidir.
 
-## Mevcut durum — Aşama 9
+## Mevcut durum — Aşama 10
 
 Proje şu anda:
 
@@ -25,6 +25,9 @@ Proje şu anda:
 - Her oda için generation verisinden ayrı `Unvisited`, `Active` veya `Visited` runtime exploration state'i tutar.
 - Oda ziyaret sayısını, 1 tabanlı ilk keşif sırasını ve son giriş/çıkış connection bilgisini kaydeder.
 - Room state değişikliklerini area tracker olaylarından event tabanlı olarak günceller.
+- Doorway kayıtlarından runtime sırasında görünür, collider tabanlı fiziksel kapılar üretir.
+- Yeni Normal/Boss odalarına ilk girişte ilgili oda tarafındaki kapıları geçici olarak kilitler.
+- `C` tuşuyla aktif kilitli odayı debug amaçlı temizler; Cleared odalar tekrar kilitlenmez.
 
 Varsayılan `12345` seed değeriyle 15 oda üretilir; başlangıç odası `13`, boss odası `7` olur.
 
@@ -59,19 +62,21 @@ Assets/Scripts/ProceduralDungeon/
   Generation/     Oda, graph, koridor, doorway ve oda rolü üretimi
   Rendering/      Tilemap zemin/duvar çizimi
   Player/         Oyuncu hareketi, spawn ve kamera takibi
-  Runtime/        Üretim hattı, alan/room state takibi, geçiş olayları ve uGUI paneli
+  Runtime/        Üretim hattı, alan/room state, fiziksel kapı, encounter ve uGUI paneli
   Visualization/  Scene görünümü Gizmo çizimleri
 ```
 
 ## Runtime üretim akışı
 
-**Generate** işlemi eski area tracker, room state, Tilemap, rol, doorway, koridor, graph ve oda verisini güvenli sırayla temizler. Ardından oda üretimi → graph → koridor → doorway verisi → Tilemap → start/boss rolleri → runtime area lookup → room state kayıtları → player spawn → kamera bounds → ilk alan değerlendirmesi sırasını uygular. Her adım doğrulanır; başarısızlıkta sonraki adıma geçilmez, yarım veri temizlenir ve player hareketi kapalı tutulur.
+**Generate** işlemi eski area tracker, room/encounter state, fiziksel kapı, Tilemap, rol, doorway, koridor, graph ve oda verisini güvenli sırayla temizler. Ardından oda üretimi → graph → koridor → doorway verisi → Tilemap → start/boss rolleri → runtime area lookup → room state kayıtları → fiziksel kapılar → encounter kayıtları → player spawn → kamera bounds → ilk alan değerlendirmesi sırasını uygular. Her adım doğrulanır; başarısızlıkta sonraki adıma geçilmez, yarım veri temizlenir ve player hareketi kapalı tutulur.
 
-Doorway kayıtları gerçek bir kapı GameObject'i veya oynanış mekaniği değildir. Her bağlantının oda sınırındaki giriş hücresini, koridora doğru kardinal yönünü ve ilk dış koridor hücresini açık veri olarak tutar; sonraki kapı, geçiş ve içerik yerleşimi aşamalarına deterministik bir temel sağlar. Scene görünümündeki cyan gizmo işaretleri bu veriyi gösterir; Game görünümüne ek bir işaret çizilmez.
+Doorway kayıtları fiziksel kapılardan ayrı deterministik kaynak veridir. Her bağlantının oda sınırındaki giriş hücresini, koridora doğru kardinal yönünü ve ilk dış koridor hücresini tutar. Scene görünümündeki cyan gizmo işaretleri ham doorway verisini, Game görünümündeki runtime sprite'lar ise bu veriden üretilen fiziksel kapıları gösterir.
 
 Runtime area tracker, player konumunu Grid hücresine çevirerek önce oda, sonra koridor lookup'unda arar. Gerçek alan değişimlerinde `RoomEntered`, `RoomExited` ve `AreaChanged` olayları üretir; doorway üzerinden yapılan geçişlerde ilgili connection bilgisini taşır. Bu yalnızca takip ve olay altyapısıdır; kapı, encounter veya minimap sistemi eklemez.
 
-Runtime room state controller, area tracker'ın `AreaChanged` olayını kullanır. İlk girişte keşif sayısını ve sırasını atar; oda giriş/çıkışlarında visit count ile connection geçmişini günceller. Bu katman henüz kapı, encounter, düşman, room-cleared, minimap veya save/load sistemi değildir.
+Runtime room state controller, area tracker'ın `AreaChanged` olayını kullanır. İlk girişte keşif sayısını ve sırasını atar; oda giriş/çıkışlarında visit count ile connection geçmişini günceller. Exploration state, ayrı tutulan encounter/Cleared durumunun yerine geçmez.
+
+Runtime kapılar açıkken turkuaz ve geçirgen, kilitliyken kırmızı ve fiziksel engel olacak şekilde görünür. Start Room encounter dışı/Cleared başlar. Yeni bir Normal veya Boss odaya girildiğinde yalnızca o odaya ait kapılar güvenli biçimde kapanır; oyuncuyla çakışan giriş kapısı oyuncu hücreden ayrılana kadar bekletilir. Bu aşamadaki `C` komutu yalnızca geçici debug room-clear yöntemidir; düşman, combat veya gerçek encounter completion bulunmaz.
 
 ## Yol haritası
 
@@ -80,6 +85,7 @@ Runtime room state controller, area tracker'ın `AreaChanged` olayını kullanı
 - [x] Aşama 7 — Deterministik doorway/entrance verisi ve Scene gizmo doğrulaması
 - [x] Aşama 8 — Runtime room/corridor takibi ve geçiş olayları
 - [x] Aşama 9 — Runtime room state ve exploration verisi
+- [x] Aşama 10 — Görünür fiziksel kapılar ve geçici room locking prototipi
 
 ## Kontroller
 
@@ -87,9 +93,10 @@ Runtime room state controller, area tracker'ın `AreaChanged` olayını kullanı
 |---|---|
 | `WASD` / yön tuşları | Hareket |
 | Gamepad sol çubuğu | Hareket |
+| `C` | Aktif Locked odayı geçici olarak Cleared yap |
 
 Çapraz hareket normalize edilir; varsayılan hız `6` birim/saniyedir.
 
 ## Kapsam
 
-Bu aşamada düşman, encounter, minimap, room-cleared, save/load, savaş, fiziksel/etkileşimli kapı, anahtar veya envanter sistemi bulunmaz. Prototip deterministik üretim hattı, doorway verisi, runtime alan ve exploration state takibi, oynanabilir hareket, fizik çarpışması ve kamera takibine odaklanır.
+Bu aşamada düşman, combat, health, damage, gerçek encounter completion, minimap, save/load, anahtar veya envanter sistemi bulunmaz. Prototip deterministik üretim hattı, runtime kapı/locking davranışı, alan ve exploration state takibi, oynanabilir hareket, fizik çarpışması ve kamera takibine odaklanır.

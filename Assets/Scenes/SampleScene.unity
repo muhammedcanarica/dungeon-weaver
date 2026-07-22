@@ -4965,6 +4965,8 @@ GameObject:
   - component: {fileID: 1074544758}
   - component: {fileID: 1074544759}
   - component: {fileID: 1074544760}
+  - component: {fileID: 1074544762}
+  - component: {fileID: 1074544761}
   m_Layer: 0
   m_Name: DungeonGenerator
   m_TagString: Untagged
@@ -5654,6 +5656,32 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 53fbead35f5bb6146b2eeab8dec48a29, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::ProceduralDungeon.DungeonRoomStateController
+--- !u!114 &1074544761
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1074544748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 656a47b48c84c6740a655f989457abac, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::ProceduralDungeon.DungeonRoomEncounterController
+  playerCollider: {fileID: 133902451}
+--- !u!114 &1074544762
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1074544748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 41d465a9c085fe94992b6a1b157e13f6, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::ProceduralDungeon.DungeonDoorRegistry
+  grid: {fileID: 801722560}
 --- !u!1 &1238119777
 GameObject:
   m_ObjectHideFlags: 0

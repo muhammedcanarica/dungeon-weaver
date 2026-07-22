@@ -7,6 +7,7 @@ namespace ProceduralDungeon
     [RequireComponent(typeof(DungeonDoorwayBuilder))]
     [RequireComponent(typeof(DungeonAreaTracker))]
     [RequireComponent(typeof(DungeonRoomStateController))]
+    [RequireComponent(typeof(DungeonDoorRegistry), typeof(DungeonRoomEncounterController))]
     [RequireComponent(typeof(DungeonTilemapRenderer), typeof(DungeonRoomRoleAssigner), typeof(DungeonPlayerSpawner))]
     public sealed class DungeonRuntimeController : MonoBehaviour
     {
@@ -22,6 +23,8 @@ namespace ProceduralDungeon
         private DungeonDoorwayBuilder doorwayBuilder;
         private DungeonAreaTracker areaTracker;
         private DungeonRoomStateController roomStateController;
+        private DungeonDoorRegistry doorRegistry;
+        private DungeonRoomEncounterController encounterController;
         private DungeonTilemapRenderer tilemapRenderer;
         private DungeonRoomRoleAssigner roleAssigner;
         private DungeonPlayerSpawner playerSpawner;
@@ -71,6 +74,8 @@ namespace ProceduralDungeon
 
                 areaTracker.ClearTracking();
                 roomStateController.ClearStates();
+                encounterController.ClearStates();
+                doorRegistry.ClearDoors();
                 tilemapRenderer.ClearDungeonTilemap();
                 roleAssigner.ClearRoomRoles();
                 doorwayBuilder.ClearDoorways();
@@ -114,6 +119,16 @@ namespace ProceduralDungeon
                     return FailGeneration("room state initialization");
                 LogStep($"Initialized runtime state for {roomStateController.TotalRoomCount} rooms.");
 
+                if (!doorRegistry.BuildDoors() || !doorRegistry.HasBuiltDoors)
+                    return FailGeneration("physical door building");
+                LogStep($"Built {doorRegistry.DoorCount} physical doors from {doorRegistry.DoorwayAssociationCount} doorway records.");
+
+                if (!encounterController.InitializeStates()
+                    || !encounterController.HasEncounterStates
+                    || encounterController.TotalRoomCount != generator.Rooms.Count)
+                    return FailGeneration("room encounter state initialization");
+                LogStep($"Initialized encounter state for {encounterController.TotalRoomCount} rooms.");
+
                 if (!playerSpawner.TryPlacePlayerAtStart()) return FailGeneration("player spawning");
                 cameraFollow.RefreshDungeonBounds();
                 if (!areaTracker.RefreshPlayerArea()
@@ -122,6 +137,8 @@ namespace ProceduralDungeon
                     return FailGeneration("initial area tracking");
                 if (!ValidateInitialRoomState() || !roomStateController.CaptureInitialStateSignature())
                     return FailGeneration("initial room state validation");
+                if (!ValidateInitialDoorAndEncounterState())
+                    return FailGeneration("initial door and encounter validation");
                 LogStep($"Captured initial room state signature {roomStateController.InitialStateSignature}.");
                 SetPlayerMovement(true);
 
@@ -196,6 +213,8 @@ namespace ProceduralDungeon
         {
             areaTracker?.ClearTracking();
             roomStateController?.ClearStates();
+            encounterController?.ClearStates();
+            doorRegistry?.ClearDoors();
             tilemapRenderer?.ClearDungeonTilemap();
             roleAssigner?.ClearRoomRoles();
             doorwayBuilder?.ClearDoorways();
@@ -225,6 +244,8 @@ namespace ProceduralDungeon
             if (doorwayBuilder == null) doorwayBuilder = GetComponent<DungeonDoorwayBuilder>();
             if (areaTracker == null) areaTracker = GetComponent<DungeonAreaTracker>();
             if (roomStateController == null) roomStateController = GetComponent<DungeonRoomStateController>();
+            if (doorRegistry == null) doorRegistry = GetComponent<DungeonDoorRegistry>();
+            if (encounterController == null) encounterController = GetComponent<DungeonRoomEncounterController>();
             if (tilemapRenderer == null) tilemapRenderer = GetComponent<DungeonTilemapRenderer>();
             if (roleAssigner == null) roleAssigner = GetComponent<DungeonRoomRoleAssigner>();
             if (playerSpawner == null) playerSpawner = GetComponent<DungeonPlayerSpawner>();
@@ -234,6 +255,7 @@ namespace ProceduralDungeon
         {
             return generator != null && graphBuilder != null && corridorBuilder != null && doorwayBuilder != null
                 && areaTracker != null && roomStateController != null
+                && doorRegistry != null && encounterController != null
                 && tilemapRenderer != null && roleAssigner != null && playerSpawner != null
                 && playerController != null && cameraFollow != null;
         }
@@ -249,6 +271,18 @@ namespace ProceduralDungeon
                 && startState.ExplorationState == RoomExplorationState.Active
                 && startState.VisitCount == 1
                 && startState.FirstVisitOrder == 1;
+        }
+
+        private bool ValidateInitialDoorAndEncounterState()
+        {
+            if (doorRegistry.DoorCount <= 0
+                || doorRegistry.OpenDoorCount != doorRegistry.DoorCount
+                || doorRegistry.ClosedDoorCount != 0
+                || !encounterController.TryGetRoomState(roleAssigner.StartRoomId,
+                    out DungeonRoomEncounterRuntimeState startEncounter))
+                return false;
+            return startEncounter.State == RoomEncounterState.Cleared
+                && encounterController.ActiveLockedRoomId == DungeonRoomStateController.InvalidId;
         }
 
         private void LogStep(string message)
