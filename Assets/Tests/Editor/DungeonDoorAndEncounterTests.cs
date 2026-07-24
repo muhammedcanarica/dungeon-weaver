@@ -29,8 +29,10 @@ namespace ProceduralDungeon.Tests
         private DungeonRoomStateController roomStates;
         private DungeonDoorRegistry doorRegistry;
         private DungeonRoomEncounterController encounters;
+        private DungeonEnemyEncounterRegistry enemyRegistry;
         private DungeonRuntimeController runtime;
         private TopDownPlayerController playerController;
+        private TopDownPlayerAttack playerAttack;
         private Collider2D playerCollider;
 
         [SetUp]
@@ -63,6 +65,7 @@ namespace ProceduralDungeon.Tests
             playerCollider = playerObject.AddComponent<CircleCollider2D>();
             ((CircleCollider2D)playerCollider).radius = 0.38f;
             playerController = playerObject.AddComponent<TopDownPlayerController>();
+            playerAttack = playerObject.AddComponent<TopDownPlayerAttack>();
 
             DungeonPlayerSpawner spawner = dungeonObject.AddComponent<DungeonPlayerSpawner>();
             SetField(spawner, "prototypePlayer", playerObject.transform);
@@ -83,6 +86,7 @@ namespace ProceduralDungeon.Tests
             SetField(doorRegistry, "grid", grid);
             encounters = dungeonObject.AddComponent<DungeonRoomEncounterController>();
             SetField(encounters, "playerCollider", playerCollider);
+            enemyRegistry = dungeonObject.AddComponent<DungeonEnemyEncounterRegistry>();
 
             runtime = dungeonObject.AddComponent<DungeonRuntimeController>();
             SetField(runtime, "playerController", playerController);
@@ -310,6 +314,189 @@ namespace ProceduralDungeon.Tests
         }
 
         [Test]
+        public void EnemyPlans_AreSafeDeterministicAndExcludeStartRoom()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+
+            Assert.That(enemyRegistry.HasPlans, Is.True);
+            Assert.That(enemyRegistry.PlannedRoomCount, Is.EqualTo(generator.Rooms.Count - 1));
+            Assert.That(enemyRegistry.GetPlannedEnemyCount(roles.StartRoomId), Is.Zero);
+            Assert.That(enemyRegistry.LiveEnemyCount, Is.Zero);
+            Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(7237375054462008254L));
+            Vector2Int playerSpawnCell = RoomCenter(FindRoom(roles.StartRoomId));
+            int largestNormalCount = 0;
+
+            for (int roomIndex = 0; roomIndex < generator.Rooms.Count; roomIndex++)
+            {
+                RoomData room = generator.Rooms[roomIndex];
+                if (room.RoomId == roles.StartRoomId) continue;
+                Assert.That(enemyRegistry.TryGetPlansForRoom(room.RoomId,
+                    out IReadOnlyList<DungeonEnemySpawnPlan> plans), Is.True);
+                Assert.That(plans.Count, room.RoomId == roles.BossRoomId
+                    ? Is.InRange(4, 6) : Is.InRange(2, 4));
+                if (room.RoomId != roles.BossRoomId)
+                    largestNormalCount = Mathf.Max(largestNormalCount, plans.Count);
+                var cells = new HashSet<Vector2Int>();
+                for (int i = 0; i < plans.Count; i++)
+                {
+                    DungeonEnemySpawnPlan plan = plans[i];
+                    Vector3Int cell = new Vector3Int(plan.SpawnCell.x, plan.SpawnCell.y, 0);
+                    Assert.That(plan.RoomId, Is.EqualTo(room.RoomId));
+                    Assert.That(plan.EnemyIndex, Is.EqualTo(i));
+                    Assert.That(plan.MaxHealth, Is.EqualTo(3));
+                    Assert.That(room.Bounds.Contains(plan.SpawnCell), Is.True);
+                    Assert.That(renderer.FloorTilemap.HasTile(cell), Is.True);
+                    Assert.That(renderer.WallTilemap.HasTile(cell), Is.False);
+                    Assert.That(plan.SpawnCell, Is.Not.EqualTo(playerSpawnCell));
+                    Assert.That(cells.Add(plan.SpawnCell), Is.True);
+                    for (int doorwayIndex = 0; doorwayIndex < doorways.Doorways.Count; doorwayIndex++)
+                    {
+                        Assert.That(plan.SpawnCell,
+                            Is.Not.EqualTo(doorways.Doorways[doorwayIndex].EntranceCell));
+                        Assert.That(plan.SpawnCell,
+                            Is.Not.EqualTo(doorways.Doorways[doorwayIndex].FirstCorridorCell));
+                    }
+                }
+            }
+
+            Assert.That(enemyRegistry.GetPlannedEnemyCount(roles.BossRoomId),
+                Is.GreaterThanOrEqualTo(largestNormalCount));
+        }
+
+        [Test]
+        public void EnemyPlanSignature_IsStableAcrossRoundTripAndSupportedSeeds()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            long first = enemyRegistry.PlanSignature;
+            Assert.That(runtime.GenerateDungeon(54321), Is.True);
+            Assert.That(enemyRegistry.PlanSignature, Is.Not.EqualTo(first));
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(first));
+
+            Assert.That(runtime.GenerateDungeon(-54321), Is.True);
+            Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.GreaterThan(0));
+            Assert.That(runtime.GenerateDungeon(int.MinValue), Is.True);
+            Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.GreaterThan(0));
+            Assert.That(runtime.GenerateDungeon(int.MaxValue), Is.True);
+            Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.GreaterThan(0));
+        }
+
+        [Test]
+        public void LockedRoom_SpawnsOnceAndEnemyMovementRequiresTheActiveLockedRoom()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            MoveThroughToEntrance(exit, entry);
+
+            int planned = enemyRegistry.GetPlannedEnemyCount(entry.RoomId);
+            Assert.That(enemyRegistry.GetLiveEnemyCount(entry.RoomId), Is.EqualTo(planned));
+            Assert.That(enemyRegistry.ActivateRoom(entry.RoomId), Is.False);
+            Assert.That(enemyRegistry.GetLiveEnemyCount(entry.RoomId), Is.EqualTo(planned));
+            Assert.That(enemyRegistry.TryGetLiveEnemiesForRoom(entry.RoomId,
+                out IReadOnlyList<DungeonEnemy> liveEnemies), Is.True);
+            DungeonEnemy enemy = liveEnemies[0];
+            Assert.That(enemy.GetComponent<Rigidbody2D>().bodyType,
+                Is.EqualTo(RigidbodyType2D.Kinematic));
+            Assert.That(enemy.GetComponent<CircleCollider2D>().isTrigger, Is.True);
+            Assert.That(enemy.GetComponent<SpriteRenderer>().sortingOrder, Is.EqualTo(20));
+
+            Vector2 before = enemy.GetComponent<Rigidbody2D>().position;
+            MoveToCell(RoomCenter(FindRoom(entry.RoomId)));
+            Assert.That(enemy.TryMoveTowardsPlayer(0.25f), Is.True);
+            Vector2 after = enemy.GetComponent<Rigidbody2D>().position;
+            Assert.That(after, Is.Not.EqualTo(before));
+            Assert.That(FindRoom(entry.RoomId).Bounds.Contains(Vector2Int.FloorToInt(after)), Is.True);
+
+            MoveToCell(entry.FirstCorridorCell);
+            Assert.That(enemy.TryMoveTowardsPlayer(0.25f), Is.False);
+            Assert.That(enemy.GetComponent<Rigidbody2D>().position, Is.EqualTo(after));
+        }
+
+        [Test]
+        public void PlayerAttack_DamagesEachEnemyOnceAndHonorsCooldownAndInputFocus()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            MoveThroughToEntrance(exit, entry);
+            Assert.That(enemyRegistry.TryGetLiveEnemiesForRoom(entry.RoomId,
+                out IReadOnlyList<DungeonEnemy> liveEnemies), Is.True);
+            DungeonEnemy enemy = liveEnemies[0];
+            BoxCollider2D secondCollider = enemy.gameObject.AddComponent<BoxCollider2D>();
+            secondCollider.isTrigger = true;
+            playerObject.transform.position = enemy.transform.position;
+            playerObject.GetComponent<Rigidbody2D>().position = enemy.transform.position;
+            areaTracker.RefreshPlayerArea();
+            Physics2D.SyncTransforms();
+
+            int initialHealth = enemy.CurrentHealth;
+            Assert.That(playerAttack.TryAttackAtTime(10f), Is.True);
+            Assert.That(playerAttack.LastHitCount, Is.EqualTo(1));
+            Assert.That(enemy.CurrentHealth, Is.EqualTo(initialHealth - playerAttack.Damage));
+            Assert.That(playerAttack.TryAttackAtTime(10.1f), Is.False);
+            Assert.That(enemy.CurrentHealth, Is.EqualTo(initialHealth - playerAttack.Damage));
+            Assert.That(playerAttack.TryAttackAtTime(10f + playerAttack.Cooldown), Is.True);
+            Assert.That(enemy.CurrentHealth, Is.EqualTo(initialHealth - playerAttack.Damage * 2));
+
+            EventSystem eventSystem = EnsureInputFieldSelected();
+            Assert.That(eventSystem.currentSelectedGameObject, Is.SameAs(inputObject));
+            Assert.That(DungeonRuntimeInputFocus.IsInputField(inputObject), Is.True);
+            Assert.That(playerAttack.TryAttackAtTimeForSelection(20f, inputObject), Is.False);
+        }
+
+        [Test]
+        public void LastEnemyDeath_ClearsRoomOpensDoorsAndLeavesNoLiveEnemy()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            MoveThroughToEntrance(exit, entry);
+            MoveToCell(RoomCenter(FindRoom(entry.RoomId)));
+            encounters.ProcessPendingClosures();
+            Assert.That(enemyRegistry.TryGetLiveEnemiesForRoom(entry.RoomId,
+                out IReadOnlyList<DungeonEnemy> liveEnemies), Is.True);
+            var enemiesToKill = new List<DungeonEnemy>(liveEnemies);
+
+            for (int i = 0; i < enemiesToKill.Count - 1; i++)
+            {
+                Assert.That(enemiesToKill[i].TakeDamage(enemiesToKill[i].MaxHealth), Is.True);
+                Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Locked));
+            }
+            DungeonEnemy last = enemiesToKill[enemiesToKill.Count - 1];
+            Assert.That(last.TakeDamage(last.MaxHealth), Is.True);
+
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Cleared));
+            Assert.That(enemyRegistry.GetLiveEnemyCount(entry.RoomId), Is.Zero);
+            Assert.That(enemyRegistry.LiveEnemyCount, Is.Zero);
+            Assert.That(encounters.PendingDoorCount, Is.Zero);
+            AssertRoomDoorsOpen(entry.RoomId);
+        }
+
+        [Test]
+        public void DebugClear_DespawnIsSilentAndClearedRoomDoesNotRespawnEnemies()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            FindPassageFromStart(out DoorwayData startDoorway, out DoorwayData otherDoorway);
+            MoveThroughToEntrance(startDoorway, otherDoorway);
+            Assert.That(enemyRegistry.GetLiveEnemyCount(otherDoorway.RoomId), Is.GreaterThan(0));
+            int clearEvents = 0;
+            encounters.EncounterStateChanged += change =>
+            {
+                if (change.RoomId == otherDoorway.RoomId
+                    && change.CurrentState == RoomEncounterState.Cleared) clearEvents++;
+            };
+
+            Assert.That(encounters.TryDebugClearActiveRoom(), Is.True);
+            Assert.That(clearEvents, Is.EqualTo(1));
+            Assert.That(enemyRegistry.GetLiveEnemyCount(otherDoorway.RoomId), Is.Zero);
+            Assert.That(encounters.TryClearRoom(otherDoorway.RoomId), Is.False);
+            MoveThroughToEntrance(otherDoorway, startDoorway);
+            MoveThroughToEntrance(startDoorway, otherDoorway);
+
+            Assert.That(Encounter(otherDoorway.RoomId).State, Is.EqualTo(RoomEncounterState.Cleared));
+            Assert.That(enemyRegistry.GetLiveEnemyCount(otherDoorway.RoomId), Is.Zero);
+            Assert.That(clearEvents, Is.EqualTo(1));
+        }
+
+        [Test]
         public void TeleportIntoUnvisitedRoom_LocksImmediatelyWithoutPendingDoor()
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
@@ -331,6 +518,7 @@ namespace ProceduralDungeon.Tests
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             long signature = doorRegistry.LayoutSignature;
+            long enemySignature = enemyRegistry.PlanSignature;
             int count = doorRegistry.DoorCount;
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
             MoveThroughToEntrance(exit, entry);
@@ -342,6 +530,8 @@ namespace ProceduralDungeon.Tests
             Assert.That(doorRegistry.LayoutSignature, Is.EqualTo(signature));
             Assert.That(doorRegistry.OpenDoorCount, Is.EqualTo(count));
             Assert.That(doorRegistry.ClosedDoorCount, Is.Zero);
+            Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(enemySignature));
+            Assert.That(enemyRegistry.LiveEnemyCount, Is.Zero);
             Assert.That(encounters.PendingDoorCount, Is.Zero);
             Assert.That(Encounter(roles.StartRoomId).State, Is.EqualTo(RoomEncounterState.Cleared));
             for (int i = 0; i < generator.Rooms.Count; i++)
@@ -441,6 +631,34 @@ namespace ProceduralDungeon.Tests
             Assert.That(encounters.HasEncounterStates, Is.False);
             Assert.That(encounters.ActiveLockedRoomId,
                 Is.EqualTo(DungeonRoomStateController.InvalidId));
+            Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.Zero);
+            Assert.That(enemyRegistry.PlannedRoomCount, Is.Zero);
+            Assert.That(enemyRegistry.LiveEnemyCount, Is.Zero);
+            Assert.That(enemyRegistry.PlanSignature, Is.Zero);
+            Assert.That(enemyRegistry.HasPlans, Is.False);
+        }
+
+        private EventSystem EnsureInputFieldSelected()
+        {
+            EventSystem eventSystem = EventSystem.current;
+            if (eventSystem == null)
+            {
+                eventSystemObject = new GameObject("Door Test EventSystem");
+                eventSystem = eventSystemObject.AddComponent<EventSystem>();
+            }
+            canvasObject = new GameObject("Door Test Canvas", typeof(Canvas));
+            inputObject = new GameObject("Door Test Input", typeof(RectTransform),
+                typeof(CanvasRenderer), typeof(Image));
+            inputObject.SetActive(false);
+            inputObject.transform.SetParent(canvasObject.transform, false);
+            InputField inputField = inputObject.AddComponent<InputField>();
+            var textObject = new GameObject("Text", typeof(RectTransform),
+                typeof(CanvasRenderer), typeof(Text));
+            textObject.transform.SetParent(inputObject.transform, false);
+            inputField.textComponent = textObject.GetComponent<Text>();
+            inputObject.SetActive(true);
+            eventSystem.SetSelectedGameObject(inputObject);
+            return eventSystem;
         }
 
         private void AssertRoomDoorsOpen(int roomId)

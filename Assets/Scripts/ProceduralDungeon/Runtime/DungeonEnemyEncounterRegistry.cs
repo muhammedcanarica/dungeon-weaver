@@ -1,0 +1,448 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Tilemaps;
+
+namespace ProceduralDungeon
+{
+    [RequireComponent(typeof(DungeonGenerator), typeof(DungeonDoorwayBuilder))]
+    [RequireComponent(typeof(DungeonRoomRoleAssigner), typeof(DungeonRoomEncounterController))]
+    [RequireComponent(typeof(DungeonTilemapRenderer), typeof(DungeonAreaTracker))]
+    public sealed class DungeonEnemyEncounterRegistry : MonoBehaviour
+    {
+        private const ulong Offset = 14695981039346656037UL;
+        private const ulong Prime = 1099511628211UL;
+        private const int EncounterSalt = unchecked((int)0x51A7E91D);
+
+        [SerializeField, Min(1)] private int normalMinimumCount = 2;
+        [SerializeField, Min(1)] private int normalMaximumCount = 4;
+        [SerializeField, Min(1)] private int bossMinimumCount = 4;
+        [SerializeField, Min(1)] private int bossMaximumCount = 6;
+        [SerializeField, Min(1)] private int enemyMaxHealth = 3;
+        [SerializeField, Min(0f)] private float enemyMoveSpeed = 2.25f;
+
+        private readonly Dictionary<int, List<DungeonEnemySpawnPlan>> plansByRoom =
+            new Dictionary<int, List<DungeonEnemySpawnPlan>>();
+        private readonly Dictionary<int, List<DungeonEnemy>> liveEnemiesByRoom =
+            new Dictionary<int, List<DungeonEnemy>>();
+        private readonly HashSet<int> spawnedRoomIds = new HashSet<int>();
+        private DungeonGenerator generator;
+        private DungeonDoorwayBuilder doorwayBuilder;
+        private DungeonRoomRoleAssigner roleAssigner;
+        private DungeonRoomEncounterController encounterController;
+        private DungeonTilemapRenderer tilemapRenderer;
+        private DungeonAreaTracker areaTracker;
+        private Transform player;
+        private Grid grid;
+        private Transform enemyRoot;
+        private Sprite runtimeSprite;
+        private bool hasPlans;
+        private bool subscribed;
+        private long planSignature;
+        private int totalPlanCount;
+
+        public int PlannedRoomCount => plansByRoom.Count;
+        public int TotalPlannedEnemyCount => totalPlanCount;
+        public int LiveEnemyCount
+        {
+            get
+            {
+                int count = 0;
+                foreach (KeyValuePair<int, List<DungeonEnemy>> entry in liveEnemiesByRoom)
+                    for (int i = 0; i < entry.Value.Count; i++)
+                        if (entry.Value[i] != null && entry.Value[i].IsAlive) count++;
+                return count;
+            }
+        }
+        public bool HasPlans => hasPlans;
+        public long PlanSignature => planSignature;
+
+        private void OnEnable()
+        {
+            CacheComponents();
+            Subscribe();
+        }
+
+        private void OnDisable()
+        {
+            Unsubscribe();
+        }
+
+        private void OnDestroy()
+        {
+            ClearAll();
+        }
+
+        public bool BuildPlans(int dungeonSeed)
+        {
+            ClearAll();
+            CacheComponents();
+            Subscribe();
+            if (!HasValidSources())
+            {
+                Debug.LogError("[DungeonEnemyEncounterRegistry] Plan build rejected because source data is invalid.", this);
+                return false;
+            }
+
+            var rooms = new List<RoomData>(generator.Rooms);
+            rooms.Sort((left, right) => left.RoomId.CompareTo(right.RoomId));
+            Vector2Int playerSpawnCell = GetRoomCenterCell(FindRoom(roleAssigner.StartRoomId));
+            var excludedDoorwayCells = new HashSet<Vector2Int>();
+            for (int i = 0; i < doorwayBuilder.Doorways.Count; i++)
+            {
+                excludedDoorwayCells.Add(doorwayBuilder.Doorways[i].EntranceCell);
+                excludedDoorwayCells.Add(doorwayBuilder.Doorways[i].FirstCorridorCell);
+            }
+
+            for (int i = 0; i < rooms.Count; i++)
+            {
+                RoomData room = rooms[i];
+                if (room.RoomId == roleAssigner.StartRoomId) continue;
+                BuildRoomPlan(dungeonSeed, room, playerSpawnCell, excludedDoorwayCells);
+            }
+
+            planSignature = ComputePlanSignature();
+            hasPlans = true;
+            Debug.Log($"[DungeonEnemyEncounterRegistry] Planned {totalPlanCount} enemies for {plansByRoom.Count} rooms with signature {planSignature}.", this);
+            return true;
+        }
+
+        public bool TryGetPlansForRoom(int roomId,
+            out IReadOnlyList<DungeonEnemySpawnPlan> roomPlans)
+        {
+            if (plansByRoom.TryGetValue(roomId, out List<DungeonEnemySpawnPlan> plans))
+            {
+                roomPlans = plans.AsReadOnly();
+                return true;
+            }
+            roomPlans = null;
+            return false;
+        }
+
+        public int GetPlannedEnemyCount(int roomId)
+        {
+            return plansByRoom.TryGetValue(roomId, out List<DungeonEnemySpawnPlan> plans)
+                ? plans.Count : 0;
+        }
+
+        public int GetLiveEnemyCount(int roomId)
+        {
+            if (!liveEnemiesByRoom.TryGetValue(roomId, out List<DungeonEnemy> enemies)) return 0;
+            RemoveDestroyedReferences(enemies);
+            return enemies.Count;
+        }
+
+        public bool TryGetLiveEnemiesForRoom(int roomId,
+            out IReadOnlyList<DungeonEnemy> roomEnemies)
+        {
+            if (liveEnemiesByRoom.TryGetValue(roomId, out List<DungeonEnemy> enemies))
+            {
+                RemoveDestroyedReferences(enemies);
+                roomEnemies = enemies.AsReadOnly();
+                return true;
+            }
+            roomEnemies = null;
+            return false;
+        }
+
+        public bool ActivateRoom(int roomId)
+        {
+            if (!hasPlans || spawnedRoomIds.Contains(roomId)
+                || encounterController == null
+                || !encounterController.TryGetRoomState(roomId,
+                    out DungeonRoomEncounterRuntimeState state)
+                || state.State != RoomEncounterState.Locked) return false;
+
+            spawnedRoomIds.Add(roomId);
+            if (!plansByRoom.TryGetValue(roomId, out List<DungeonEnemySpawnPlan> plans)
+                || plans.Count == 0)
+            {
+                encounterController.TryClearRoom(roomId);
+                return true;
+            }
+
+            EnsureRuntimeVisuals();
+            RoomData room = FindRoom(roomId);
+            var enemies = new List<DungeonEnemy>(plans.Count);
+            liveEnemiesByRoom.Add(roomId, enemies);
+            for (int i = 0; i < plans.Count; i++)
+            {
+                DungeonEnemySpawnPlan plan = plans[i];
+                var enemyObject = new GameObject($"Enemy_Room{roomId}_{plan.EnemyIndex}");
+                enemyObject.transform.SetParent(enemyRoot, false);
+                Vector3 world = grid.GetCellCenterWorld(
+                    new Vector3Int(plan.SpawnCell.x, plan.SpawnCell.y, 0));
+                enemyObject.transform.position = new Vector3(world.x, world.y, 0f);
+                enemyObject.AddComponent<SpriteRenderer>();
+                enemyObject.AddComponent<Rigidbody2D>();
+                enemyObject.AddComponent<CircleCollider2D>();
+                DungeonEnemy enemy = enemyObject.AddComponent<DungeonEnemy>();
+                enemy.Initialize(plan, room.Bounds, player, areaTracker, encounterController,
+                    runtimeSprite, enemyMoveSpeed);
+                enemy.Died += HandleEnemyDied;
+                enemies.Add(enemy);
+            }
+            return true;
+        }
+
+        public void ClearRoomEnemies(int roomId)
+        {
+            if (!liveEnemiesByRoom.TryGetValue(roomId, out List<DungeonEnemy> enemies)) return;
+            liveEnemiesByRoom.Remove(roomId);
+            for (int i = enemies.Count - 1; i >= 0; i--)
+            {
+                DungeonEnemy enemy = enemies[i];
+                if (enemy == null) continue;
+                enemy.Died -= HandleEnemyDied;
+                enemy.DespawnWithoutDeath();
+            }
+            enemies.Clear();
+        }
+
+        public void ClearAll()
+        {
+            var roomIds = new List<int>(liveEnemiesByRoom.Keys);
+            for (int i = 0; i < roomIds.Count; i++) ClearRoomEnemies(roomIds[i]);
+            liveEnemiesByRoom.Clear();
+            spawnedRoomIds.Clear();
+            plansByRoom.Clear();
+            totalPlanCount = 0;
+            planSignature = 0;
+            hasPlans = false;
+            if (enemyRoot != null)
+            {
+                enemyRoot.gameObject.SetActive(false);
+                DestroyRuntimeObject(enemyRoot.gameObject);
+                enemyRoot = null;
+            }
+            if (runtimeSprite != null)
+            {
+                DestroyRuntimeObject(runtimeSprite);
+                runtimeSprite = null;
+            }
+        }
+
+        private void BuildRoomPlan(int dungeonSeed, RoomData room, Vector2Int playerSpawnCell,
+            HashSet<Vector2Int> excludedDoorwayCells)
+        {
+            int derivedSeed = DeriveRoomSeed(dungeonSeed, room.RoomId);
+            var random = new System.Random(derivedSeed);
+            bool boss = room.RoomId == roleAssigner.BossRoomId;
+            int minimum = boss ? bossMinimumCount : normalMinimumCount;
+            int maximum = boss ? bossMaximumCount : normalMaximumCount;
+            minimum = Mathf.Max(1, minimum);
+            maximum = Mathf.Max(minimum, maximum);
+            int targetCount = random.Next(minimum, maximum + 1);
+
+            var preferred = new List<Vector2Int>();
+            var nearDoorway = new List<Vector2Int>();
+            for (int y = room.Bounds.yMin + 1; y < room.Bounds.yMax - 1; y++)
+            {
+                for (int x = room.Bounds.xMin + 1; x < room.Bounds.xMax - 1; x++)
+                {
+                    var cell = new Vector2Int(x, y);
+                    if (cell == playerSpawnCell || excludedDoorwayCells.Contains(cell)
+                        || !tilemapRenderer.FloorTilemap.HasTile(new Vector3Int(x, y, 0))
+                        || tilemapRenderer.WallTilemap.HasTile(new Vector3Int(x, y, 0))) continue;
+                    if (DistanceFromRoomDoorways(room.RoomId, cell) >= 2) preferred.Add(cell);
+                    else nearDoorway.Add(cell);
+                }
+            }
+
+            preferred.Sort(CompareCells);
+            nearDoorway.Sort(CompareCells);
+            Shuffle(preferred, random);
+            Shuffle(nearDoorway, random);
+            preferred.AddRange(nearDoorway);
+            int actualCount = Mathf.Min(targetCount, preferred.Count);
+            var plans = new List<DungeonEnemySpawnPlan>(actualCount);
+            for (int i = 0; i < actualCount; i++)
+                plans.Add(new DungeonEnemySpawnPlan(room.RoomId, preferred[i], i, enemyMaxHealth));
+            plansByRoom.Add(room.RoomId, plans);
+            totalPlanCount += plans.Count;
+            if (actualCount < targetCount)
+                Debug.LogWarning($"[DungeonEnemyEncounterRegistry] Room {room.RoomId} enemy count reduced from {targetCount} to {actualCount} because only that many safe cells exist.", this);
+        }
+
+        private int DistanceFromRoomDoorways(int roomId, Vector2Int cell)
+        {
+            int best = int.MaxValue;
+            for (int i = 0; i < doorwayBuilder.Doorways.Count; i++)
+            {
+                DoorwayData doorway = doorwayBuilder.Doorways[i];
+                if (doorway.RoomId != roomId) continue;
+                int distance = Mathf.Abs(cell.x - doorway.EntranceCell.x)
+                    + Mathf.Abs(cell.y - doorway.EntranceCell.y);
+                if (distance < best) best = distance;
+            }
+            return best;
+        }
+
+        private void HandleEncounterStateChanged(DungeonRoomEncounterChange change)
+        {
+            if (change.CurrentState == RoomEncounterState.Locked) ActivateRoom(change.RoomId);
+            else if (change.CurrentState == RoomEncounterState.Cleared) ClearRoomEnemies(change.RoomId);
+        }
+
+        private void HandleEnemyDied(DungeonEnemy enemy)
+        {
+            if (enemy == null || !liveEnemiesByRoom.TryGetValue(enemy.RoomId,
+                    out List<DungeonEnemy> enemies)) return;
+            enemy.Died -= HandleEnemyDied;
+            enemies.Remove(enemy);
+            RemoveDestroyedReferences(enemies);
+            if (enemies.Count != 0) return;
+            liveEnemiesByRoom.Remove(enemy.RoomId);
+            encounterController.TryClearRoom(enemy.RoomId);
+        }
+
+        private void EnsureRuntimeVisuals()
+        {
+            if (enemyRoot == null)
+            {
+                var rootObject = new GameObject("DungeonEnemies");
+                rootObject.transform.SetParent(transform, false);
+                enemyRoot = rootObject.transform;
+            }
+            if (runtimeSprite == null)
+            {
+                runtimeSprite = Sprite.Create(Texture2D.whiteTexture, new Rect(0f, 0f, 1f, 1f),
+                    new Vector2(0.5f, 0.5f), 1f);
+                runtimeSprite.name = "Runtime Dungeon Enemy Sprite";
+            }
+        }
+
+        private long ComputePlanSignature()
+        {
+            var allPlans = new List<DungeonEnemySpawnPlan>(totalPlanCount);
+            foreach (KeyValuePair<int, List<DungeonEnemySpawnPlan>> entry in plansByRoom)
+                allPlans.AddRange(entry.Value);
+            allPlans.Sort((left, right) =>
+            {
+                int value = left.RoomId.CompareTo(right.RoomId);
+                if (value != 0) return value;
+                value = left.SpawnCell.x.CompareTo(right.SpawnCell.x);
+                if (value != 0) return value;
+                value = left.SpawnCell.y.CompareTo(right.SpawnCell.y);
+                return value != 0 ? value : left.EnemyIndex.CompareTo(right.EnemyIndex);
+            });
+
+            ulong hash = Offset;
+            AddInt(ref hash, allPlans.Count);
+            for (int i = 0; i < allPlans.Count; i++)
+            {
+                DungeonEnemySpawnPlan plan = allPlans[i];
+                AddInt(ref hash, plan.RoomId);
+                AddInt(ref hash, plan.EnemyIndex);
+                AddInt(ref hash, plan.SpawnCell.x);
+                AddInt(ref hash, plan.SpawnCell.y);
+                AddInt(ref hash, plan.MaxHealth);
+                AddInt(ref hash, plan.TypeId);
+            }
+            return unchecked((long)hash);
+        }
+
+        private bool HasValidSources()
+        {
+            return generator != null && generator.Rooms != null && generator.Rooms.Count > 0
+                && doorwayBuilder != null && doorwayBuilder.IsDoorwayDataCurrent
+                && roleAssigner != null && roleAssigner.IsRoleDataCurrent
+                && encounterController != null && encounterController.HasEncounterStates
+                && tilemapRenderer != null && tilemapRenderer.IsTilemapCurrent
+                && tilemapRenderer.FloorTilemap != null && tilemapRenderer.WallTilemap != null
+                && areaTracker != null && areaTracker.IsLookupCurrent && player != null && grid != null;
+        }
+
+        private void CacheComponents()
+        {
+            if (generator == null) generator = GetComponent<DungeonGenerator>();
+            if (doorwayBuilder == null) doorwayBuilder = GetComponent<DungeonDoorwayBuilder>();
+            if (roleAssigner == null) roleAssigner = GetComponent<DungeonRoomRoleAssigner>();
+            if (encounterController == null)
+                encounterController = GetComponent<DungeonRoomEncounterController>();
+            if (tilemapRenderer == null) tilemapRenderer = GetComponent<DungeonTilemapRenderer>();
+            if (areaTracker == null) areaTracker = GetComponent<DungeonAreaTracker>();
+            if (tilemapRenderer != null && tilemapRenderer.FloorTilemap != null)
+                grid = tilemapRenderer.FloorTilemap.GetComponentInParent<Grid>();
+            if (player == null)
+            {
+                TopDownPlayerController controller = FindFirstObjectByType<TopDownPlayerController>();
+                if (controller != null) player = controller.transform;
+            }
+        }
+
+        private void Subscribe()
+        {
+            if (encounterController == null || subscribed) return;
+            encounterController.EncounterStateChanged += HandleEncounterStateChanged;
+            subscribed = true;
+        }
+
+        private void Unsubscribe()
+        {
+            if (encounterController != null && subscribed)
+                encounterController.EncounterStateChanged -= HandleEncounterStateChanged;
+            subscribed = false;
+        }
+
+        private RoomData FindRoom(int roomId)
+        {
+            if (generator == null || generator.Rooms == null) return null;
+            for (int i = 0; i < generator.Rooms.Count; i++)
+                if (generator.Rooms[i].RoomId == roomId) return generator.Rooms[i];
+            return null;
+        }
+
+        private static Vector2Int GetRoomCenterCell(RoomData room)
+        {
+            return room == null ? default : new Vector2Int(
+                room.Bounds.xMin + (room.Bounds.width - 1) / 2,
+                room.Bounds.yMin + (room.Bounds.height - 1) / 2);
+        }
+
+        private static int DeriveRoomSeed(int dungeonSeed, int roomId)
+        {
+            return unchecked(dungeonSeed * 486187739 + roomId * 16777619 + EncounterSalt);
+        }
+
+        private static void Shuffle(List<Vector2Int> cells, System.Random random)
+        {
+            for (int i = cells.Count - 1; i > 0; i--)
+            {
+                int swapIndex = random.Next(i + 1);
+                (cells[i], cells[swapIndex]) = (cells[swapIndex], cells[i]);
+            }
+        }
+
+        private static int CompareCells(Vector2Int left, Vector2Int right)
+        {
+            int value = left.x.CompareTo(right.x);
+            return value != 0 ? value : left.y.CompareTo(right.y);
+        }
+
+        private static void RemoveDestroyedReferences(List<DungeonEnemy> enemies)
+        {
+            for (int i = enemies.Count - 1; i >= 0; i--)
+                if (enemies[i] == null || !enemies[i].IsAlive) enemies.RemoveAt(i);
+        }
+
+        private static void AddInt(ref ulong hash, int value)
+        {
+            uint bits = unchecked((uint)value);
+            for (int shift = 0; shift < 32; shift += 8) AddByte(ref hash, (byte)(bits >> shift));
+        }
+
+        private static void AddByte(ref ulong hash, byte value)
+        {
+            hash ^= value;
+            hash = unchecked(hash * Prime);
+        }
+
+        private static void DestroyRuntimeObject(UnityEngine.Object value)
+        {
+            if (value == null) return;
+            if (Application.isPlaying) Destroy(value);
+            else DestroyImmediate(value);
+        }
+    }
+}

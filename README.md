@@ -2,7 +2,7 @@
 
 Unity 6 ile geliştirilen, seed tabanlı ve tekrar üretilebilir bir 2D procedural dungeon portfolyo prototipidir.
 
-## Mevcut durum — Aşama 10
+## Mevcut durum — Aşama 11
 
 Proje şu anda:
 
@@ -28,6 +28,12 @@ Proje şu anda:
 - Doorway kayıtlarından runtime sırasında görünür, collider tabanlı fiziksel kapılar üretir.
 - Yeni Normal/Boss odalarına ilk girişte ilgili oda tarafındaki kapıları geçici olarak kilitler.
 - `C` tuşuyla aktif kilitli odayı debug amaçlı temizler; Cleared odalar tekrar kilitlenmez.
+- Normal ve Boss odaları için dungeon seed ile room ID'den ayrı türetilen deterministik düşman planları hazırlar; Start Room düşmansız kalır.
+- Bir oda ilk kez Locked olduğunda görünür runtime düşmanları üretir; düşmanlar yalnızca oyuncuyla aynı aktif kilitli odadayken oyuncuya yaklaşır.
+- `Space` ile cooldown'lı, kısa menzilli ve Game View'da görünür geri bildirim üreten alan saldırısı yapar.
+- Düşmanlar hasar aldığında kısa renk/ölçek tepkisi verir ve health sıfıra indiğinde güvenli biçimde kaldırılır.
+- Son düşman öldüğünde ortak room-clear akışı odayı otomatik Cleared yapar ve kapıları açar.
+- Cleared odalara tekrar girildiğinde düşmanlar yeniden üretilmez; `C` geçici debug clear aracı olarak korunur.
 
 Varsayılan `12345` seed değeriyle 15 oda üretilir; başlangıç odası `13`, boss odası `7` olur.
 
@@ -86,6 +92,7 @@ Runtime kapılar açıkken turkuaz ve geçirgen, kilitliyken kırmızı ve fizik
 - [x] Aşama 8 — Runtime room/corridor takibi ve geçiş olayları
 - [x] Aşama 9 — Runtime room state ve exploration verisi
 - [x] Aşama 10 — Görünür fiziksel kapılar ve geçici room locking prototipi
+- [x] Aşama 11 — Deterministik düşman encounter'ları ve basit yakın menzilli player attack
 
 ## Kontroller
 
@@ -93,10 +100,11 @@ Runtime kapılar açıkken turkuaz ve geçirgen, kilitliyken kırmızı ve fizik
 |---|---|
 | `WASD` / yön tuşları | Hareket |
 | Gamepad sol çubuğu | Hareket |
+| `Space` | Aktif Locked odada yakın menzilli saldırı |
 | `C` | Aktif Locked odayı geçici olarak Cleared yap |
 
 Çapraz hareket normalize edilir; varsayılan hız `6` birim/saniyedir.
 
 ## Kapsam
 
-Bu aşamada düşman, combat, health, damage, gerçek encounter completion, minimap, save/load, anahtar veya envanter sistemi bulunmaz. Prototip deterministik üretim hattı, runtime kapı/locking davranışı, alan ve exploration state takibi, oynanabilir hareket, fizik çarpışması ve kamera takibine odaklanır.
+Bu aşamada player health, enemy damage, player death, gelişmiş combat, boss davranışı, loot, minimap, save/load, anahtar veya envanter sistemi bulunmaz. Prototip deterministik üretim hattı, runtime kapı/encounter yaşam döngüsü, basit yakın menzilli saldırı, alan ve exploration state takibi, oynanabilir hareket, fizik çarpışması ve kamera takibine odaklanır.

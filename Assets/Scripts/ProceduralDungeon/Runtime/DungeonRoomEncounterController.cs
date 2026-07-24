@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
-using UnityEngine.UI;
 
 namespace ProceduralDungeon
 {
@@ -105,18 +103,24 @@ namespace ProceduralDungeon
 
         public bool TryDebugClearActiveRoom()
         {
-            EventSystem eventSystem = EventSystem.current;
-            GameObject selected = eventSystem != null ? eventSystem.currentSelectedGameObject : null;
-            return TryDebugClearActiveRoomForSelection(selected);
+            if (DungeonRuntimeInputFocus.IsInputFieldFocused()) return false;
+            int roomId = roomStateController != null
+                ? roomStateController.CurrentActiveRoomId : DungeonRoomStateController.InvalidId;
+            return TryClearRoom(roomId);
         }
 
         public bool TryDebugClearActiveRoomForSelection(GameObject selectedObject)
         {
-            if (selectedObject != null && selectedObject.GetComponentInParent<InputField>() != null) return false;
+            if (DungeonRuntimeInputFocus.IsInputField(selectedObject)) return false;
             int roomId = roomStateController != null
                 ? roomStateController.CurrentActiveRoomId : DungeonRoomStateController.InvalidId;
+            return TryClearRoom(roomId);
+        }
+
+        public bool TryClearRoom(int roomId)
+        {
             if (!states.TryGetValue(roomId, out DungeonRoomEncounterRuntimeState state)
-                || state.State != RoomEncounterState.Locked) return false;
+                || state.State != RoomEncounterState.Locked || doorRegistry == null) return false;
             SetEncounterState(state, RoomEncounterState.Cleared);
             RemovePendingDoors(roomId);
             doorRegistry.OpenRoomDoors(roomId);
@@ -153,8 +157,8 @@ namespace ProceduralDungeon
                 return;
             }
 
-            SetEncounterState(encounter, RoomEncounterState.Locked);
             CloseRoomDoorsSafely(change.RoomId);
+            SetEncounterState(encounter, RoomEncounterState.Locked);
         }
 
         private void CloseRoomDoorsSafely(int roomId)

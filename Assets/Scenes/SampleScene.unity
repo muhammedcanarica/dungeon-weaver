@@ -132,6 +132,7 @@ GameObject:
   - component: {fileID: 133902452}
   - component: {fileID: 133902451}
   - component: {fileID: 133902450}
+  - component: {fileID: 133902455}
   m_Layer: 0
   m_Name: PrototypePlayer
   m_TagString: Untagged
@@ -289,6 +290,22 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &133902455
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 133902449}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66969c93fc14fd34193e838c503c19b8, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::ProceduralDungeon.TopDownPlayerAttack
+  damage: 1
+  attackRadius: 1.5
+  cooldown: 0.4
+  feedbackDuration: 0.12
 --- !u!1 &178436290
 GameObject:
   m_ObjectHideFlags: 0
@@ -4967,6 +4984,7 @@ GameObject:
   - component: {fileID: 1074544760}
   - component: {fileID: 1074544762}
   - component: {fileID: 1074544761}
+  - component: {fileID: 1074544763}
   m_Layer: 0
   m_Name: DungeonGenerator
   m_TagString: Untagged
@@ -5682,6 +5700,24 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::ProceduralDungeon.DungeonDoorRegistry
   grid: {fileID: 801722560}
+--- !u!114 &1074544763
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1074544748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 15e7e9880715295419cb13998fa45a38, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::ProceduralDungeon.DungeonEnemyEncounterRegistry
+  normalMinimumCount: 2
+  normalMaximumCount: 4
+  bossMinimumCount: 4
+  bossMaximumCount: 6
+  enemyMaxHealth: 3
+  enemyMoveSpeed: 2.25
 --- !u!1 &1238119777
 GameObject:
   m_ObjectHideFlags: 0

@@ -8,6 +8,7 @@ namespace ProceduralDungeon
     [RequireComponent(typeof(DungeonAreaTracker))]
     [RequireComponent(typeof(DungeonRoomStateController))]
     [RequireComponent(typeof(DungeonDoorRegistry), typeof(DungeonRoomEncounterController))]
+    [RequireComponent(typeof(DungeonEnemyEncounterRegistry))]
     [RequireComponent(typeof(DungeonTilemapRenderer), typeof(DungeonRoomRoleAssigner), typeof(DungeonPlayerSpawner))]
     public sealed class DungeonRuntimeController : MonoBehaviour
     {
@@ -25,6 +26,7 @@ namespace ProceduralDungeon
         private DungeonRoomStateController roomStateController;
         private DungeonDoorRegistry doorRegistry;
         private DungeonRoomEncounterController encounterController;
+        private DungeonEnemyEncounterRegistry enemyRegistry;
         private DungeonTilemapRenderer tilemapRenderer;
         private DungeonRoomRoleAssigner roleAssigner;
         private DungeonPlayerSpawner playerSpawner;
@@ -69,12 +71,13 @@ namespace ProceduralDungeon
                 if (!HasRequiredReferences()) return FailGeneration("dependency validation");
 
                 LogStep($"Generating seed {requestedSeed}.");
-                SetPlayerMovement(false);
+                SetPlayerGameplay(false);
                 StopPlayerBody();
 
                 areaTracker.ClearTracking();
                 roomStateController.ClearStates();
                 encounterController.ClearStates();
+                enemyRegistry.ClearAll();
                 doorRegistry.ClearDoors();
                 tilemapRenderer.ClearDungeonTilemap();
                 roleAssigner.ClearRoomRoles();
@@ -129,6 +132,10 @@ namespace ProceduralDungeon
                     return FailGeneration("room encounter state initialization");
                 LogStep($"Initialized encounter state for {encounterController.TotalRoomCount} rooms.");
 
+                if (!enemyRegistry.BuildPlans(requestedSeed) || !enemyRegistry.HasPlans)
+                    return FailGeneration("enemy encounter planning");
+                LogStep($"Planned {enemyRegistry.TotalPlannedEnemyCount} enemies for {enemyRegistry.PlannedRoomCount} rooms.");
+
                 if (!playerSpawner.TryPlacePlayerAtStart()) return FailGeneration("player spawning");
                 cameraFollow.RefreshDungeonBounds();
                 if (!areaTracker.RefreshPlayerArea()
@@ -140,7 +147,7 @@ namespace ProceduralDungeon
                 if (!ValidateInitialDoorAndEncounterState())
                     return FailGeneration("initial door and encounter validation");
                 LogStep($"Captured initial room state signature {roomStateController.InitialStateSignature}.");
-                SetPlayerMovement(true);
+                SetPlayerGameplay(true);
 
                 lastGeneratedSeed = requestedSeed;
                 hasSuccessfulDungeon = true;
@@ -181,7 +188,7 @@ namespace ProceduralDungeon
             }
 
             CacheComponents();
-            SetPlayerMovement(false);
+            SetPlayerGameplay(false);
             StopPlayerBody();
             ClearGeneratedData();
             hasSuccessfulDungeon = false;
@@ -191,7 +198,7 @@ namespace ProceduralDungeon
 
         private bool FailGeneration(string stage, Exception exception = null)
         {
-            SetPlayerMovement(false);
+            SetPlayerGameplay(false);
             StopPlayerBody();
             try
             {
@@ -214,6 +221,7 @@ namespace ProceduralDungeon
             areaTracker?.ClearTracking();
             roomStateController?.ClearStates();
             encounterController?.ClearStates();
+            enemyRegistry?.ClearAll();
             doorRegistry?.ClearDoors();
             tilemapRenderer?.ClearDungeonTilemap();
             roleAssigner?.ClearRoomRoles();
@@ -224,9 +232,12 @@ namespace ProceduralDungeon
             cameraFollow?.InvalidateDungeonBounds();
         }
 
-        private void SetPlayerMovement(bool enabled)
+        private void SetPlayerGameplay(bool enabled)
         {
-            if (playerController != null) playerController.enabled = enabled;
+            if (playerController == null) return;
+            TopDownPlayerAttack attack = playerController.GetComponent<TopDownPlayerAttack>();
+            if (attack != null) attack.enabled = enabled;
+            playerController.enabled = enabled;
         }
 
         private void StopPlayerBody()
@@ -246,6 +257,7 @@ namespace ProceduralDungeon
             if (roomStateController == null) roomStateController = GetComponent<DungeonRoomStateController>();
             if (doorRegistry == null) doorRegistry = GetComponent<DungeonDoorRegistry>();
             if (encounterController == null) encounterController = GetComponent<DungeonRoomEncounterController>();
+            if (enemyRegistry == null) enemyRegistry = GetComponent<DungeonEnemyEncounterRegistry>();
             if (tilemapRenderer == null) tilemapRenderer = GetComponent<DungeonTilemapRenderer>();
             if (roleAssigner == null) roleAssigner = GetComponent<DungeonRoomRoleAssigner>();
             if (playerSpawner == null) playerSpawner = GetComponent<DungeonPlayerSpawner>();
@@ -255,7 +267,7 @@ namespace ProceduralDungeon
         {
             return generator != null && graphBuilder != null && corridorBuilder != null && doorwayBuilder != null
                 && areaTracker != null && roomStateController != null
-                && doorRegistry != null && encounterController != null
+                && doorRegistry != null && encounterController != null && enemyRegistry != null
                 && tilemapRenderer != null && roleAssigner != null && playerSpawner != null
                 && playerController != null && cameraFollow != null;
         }
@@ -282,7 +294,9 @@ namespace ProceduralDungeon
                     out DungeonRoomEncounterRuntimeState startEncounter))
                 return false;
             return startEncounter.State == RoomEncounterState.Cleared
-                && encounterController.ActiveLockedRoomId == DungeonRoomStateController.InvalidId;
+                && encounterController.ActiveLockedRoomId == DungeonRoomStateController.InvalidId
+                && enemyRegistry.GetPlannedEnemyCount(roleAssigner.StartRoomId) == 0
+                && enemyRegistry.LiveEnemyCount == 0;
         }
 
         private void LogStep(string message)

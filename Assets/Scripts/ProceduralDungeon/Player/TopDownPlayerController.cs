@@ -1,7 +1,5 @@
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
-using UnityEngine.UI;
 
 namespace ProceduralDungeon
 {
@@ -19,7 +17,7 @@ namespace ProceduralDungeon
 
         private void Update()
         {
-            if (IsEditingSeedInput())
+            if (DungeonRuntimeInputFocus.IsInputFieldFocused())
             {
                 moveInput = Vector2.zero;
                 return;
@@ -37,13 +35,6 @@ namespace ProceduralDungeon
             Gamepad gamepad = Gamepad.current;
             if (input.sqrMagnitude <= 0f && gamepad != null) input = gamepad.leftStick.ReadValue();
             moveInput = input.sqrMagnitude > 1f ? input.normalized : input;
-        }
-
-        private static bool IsEditingSeedInput()
-        {
-            EventSystem eventSystem = EventSystem.current;
-            GameObject selected = eventSystem != null ? eventSystem.currentSelectedGameObject : null;
-            return selected != null && selected.GetComponentInParent<InputField>() != null;
         }
 
         private void FixedUpdate()
