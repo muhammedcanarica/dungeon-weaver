@@ -24,7 +24,7 @@ namespace ProceduralDungeon.Tests
         private DungeonAreaTracker areaTracker;
         private DungeonRoomStateController roomStates;
         private DungeonRuntimeController runtime;
-        private TopDownPlayerController playerController;
+        private DungeonPlayerSpawner spawner;
 
         [SetUp]
         public void SetUp()
@@ -54,9 +54,8 @@ namespace ProceduralDungeon.Tests
             playerObject = new GameObject("Room State Test Player");
             playerObject.AddComponent<Rigidbody2D>().gravityScale = 0f;
             playerObject.AddComponent<CircleCollider2D>();
-            playerController = playerObject.AddComponent<TopDownPlayerController>();
 
-            DungeonPlayerSpawner spawner = dungeonObject.AddComponent<DungeonPlayerSpawner>();
+            spawner = dungeonObject.AddComponent<DungeonPlayerSpawner>();
             spawner.SetTrackedActor(playerObject.transform);
             SetField(spawner, "floorTilemap", floorTilemap);
 
@@ -74,8 +73,6 @@ namespace ProceduralDungeon.Tests
 
             runtime = dungeonObject.AddComponent<DungeonRuntimeController>();
             SetField(runtime, "cameraFollow", cameraFollow);
-            dungeonObject.AddComponent<DungeonEnemyEncounterRegistry>();
-            dungeonObject.AddComponent<DungeonPrototypeRuntimeAdapter>().Initialize();
         }
 
         [TearDown]
@@ -378,7 +375,7 @@ namespace ProceduralDungeon.Tests
         }
 
         [Test]
-        public void FailureCleanup_RemovesOldExplorationWithoutFakeEventsAndDisablesPlayer()
+        public void FailureCleanup_RemovesOldExplorationWithoutFakeEventsAndPreservesTrackedActor()
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             MoveToCell(RoomCenter(FirstRoomExcept(roles.StartRoomId)));
@@ -400,7 +397,8 @@ namespace ProceduralDungeon.Tests
             Assert.That(discovered, Is.Zero);
             Assert.That(changed, Is.Zero);
             Assert.That(active, Is.Zero);
-            Assert.That(playerController.enabled, Is.False);
+            Assert.That(spawner.TrackedActor, Is.EqualTo(playerObject.transform));
+            Assert.That(playerObject.activeSelf, Is.True);
         }
 
         [TestCase(-54321)]

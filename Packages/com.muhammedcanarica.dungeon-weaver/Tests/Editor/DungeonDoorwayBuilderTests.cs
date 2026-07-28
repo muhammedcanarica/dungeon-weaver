@@ -25,7 +25,7 @@ namespace ProceduralDungeon.Tests
         private DungeonTilemapRenderer renderer;
         private DungeonRoomRoleAssigner roles;
         private DungeonRuntimeController runtime;
-        private TopDownPlayerController playerController;
+        private DungeonPlayerSpawner spawner;
 
         [SetUp]
         public void SetUp()
@@ -55,9 +55,8 @@ namespace ProceduralDungeon.Tests
             playerObject = new GameObject("Doorway Test Player");
             playerObject.AddComponent<Rigidbody2D>().gravityScale = 0f;
             playerObject.AddComponent<CircleCollider2D>();
-            playerController = playerObject.AddComponent<TopDownPlayerController>();
 
-            DungeonPlayerSpawner spawner = dungeonObject.AddComponent<DungeonPlayerSpawner>();
+            spawner = dungeonObject.AddComponent<DungeonPlayerSpawner>();
             spawner.SetTrackedActor(playerObject.transform);
             SetField(spawner, "floorTilemap", floorTilemap);
 
@@ -74,8 +73,6 @@ namespace ProceduralDungeon.Tests
 
             runtime = dungeonObject.AddComponent<DungeonRuntimeController>();
             SetField(runtime, "cameraFollow", cameraFollow);
-            dungeonObject.AddComponent<DungeonEnemyEncounterRegistry>();
-            dungeonObject.AddComponent<DungeonPrototypeRuntimeAdapter>().Initialize();
         }
 
         [TearDown]
@@ -226,7 +223,7 @@ namespace ProceduralDungeon.Tests
         }
 
         [Test]
-        public void RuntimeFailureCleanup_RemovesDoorwaysAndKeepsPlayerDisabled()
+        public void RuntimeFailureCleanup_RemovesDoorwaysAndPreservesTrackedActor()
         {
             SetField(renderer, "wallTile", null);
             LogAssert.Expect(LogType.Warning, "[DungeonTilemapRenderer] Render rejected: Tilemap or Tile references are invalid.");
@@ -236,7 +233,8 @@ namespace ProceduralDungeon.Tests
             Assert.That(runtime.LastStatusMessage, Is.EqualTo("Dungeon generation failed during Tilemap rendering."));
             Assert.That(doorways.Doorways, Is.Empty);
             Assert.That(doorways.IsDoorwayDataCurrent, Is.False);
-            Assert.That(playerController.enabled, Is.False);
+            Assert.That(spawner.TrackedActor, Is.EqualTo(playerObject.transform));
+            Assert.That(playerObject.activeSelf, Is.True);
         }
 
         [TestCase(-54321)]

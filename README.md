@@ -1,6 +1,6 @@
 # DungeonWeaver
 
-DungeonWeaver, Unity 6 ile geliştirilen seed tabanlı ve tekrar üretilebilir bir 2D procedural dungeon prototipidir. Aşama 12C ile procedural dungeon çekirdeği örnek oyuncu, input, UI ve combat kodundan assembly seviyesinde ayrılmıştır.
+DungeonWeaver, Unity 6 ile geliştirilen seed tabanlı ve tekrar üretilebilir bir 2D procedural dungeon paketi ve geliştirme prototipidir. Aşama 12D ile procedural dungeon çekirdeği Git URL üzerinden kurulabilen gerçek bir Unity Package Manager paketine dönüştürülmüştür.
 
 ## Mevcut özellikler
 
@@ -16,23 +16,28 @@ DungeonWeaver, Unity 6 ile geliştirilen seed tabanlı ve tekrar üretilebilir b
 ## Kod ve assembly yapısı
 
 ```text
-Assets/Scripts/ProceduralDungeon/
-  DungeonWeaver.Core.asmdef
-  Data/                 Dungeon veri modelleri
-  Generation/           Oda, graph, koridor, doorway ve rol üretimi
-  Rendering/            Tilemap üretimi
-  Runtime/              Area, room state, door, encounter ve generation pipeline
-  Player/               Genel actor spawn ve kamera bounds/takip sistemleri
-  Visualization/        Runtime-safe dungeon Gizmos çizimi
+Packages/com.muhammedcanarica.dungeon-weaver/
+  package.json
+  Runtime/
+    DungeonWeaver.Core.asmdef
+    Data/                 Dungeon veri modelleri
+    Generation/           Oda, graph, koridor, doorway ve rol üretimi
+    Rendering/            Tilemap üretimi
+    Runtime/              Area, room state, door, encounter ve generation pipeline
+    Player/               Genel actor spawn ve kamera bounds/takip sistemleri
+    Visualization/        Runtime-safe dungeon Gizmos çizimi
   Editor/
     DungeonWeaver.Editor.asmdef
     Editor-only tile GUID ve Gizmo label köprüleri
-  Samples/Prototype/
+  Tests/Editor/
+    DungeonWeaver.Core.Tests.Editor.asmdef
+
+Assets/Scripts/ProceduralDungeon/Samples/Prototype/
     DungeonWeaver.Samples.Prototype.asmdef
     Prototype movement, attack, enemy, input, UI ve runtime adapter
 
 Assets/Tests/Editor/
-  DungeonWeaver.Tests.Editor.asmdef
+  DungeonWeaver.Prototype.Tests.Editor.asmdef
 ```
 
 ### DungeonWeaver.Core
@@ -59,9 +64,9 @@ Sample enemy registry, Core encounter event’ini dinler; oda Locked olduğunda 
 
 Editor assembly yalnızca Unity Editor’da derlenir. Tile asset GUID çözümleme ve Scene görünümündeki oda etiketleri burada bulunur; runtime Core assembly’si `UnityEditor` referansı taşımaz.
 
-### DungeonWeaver.Tests.Editor
+### Test assembly'leri
 
-Edit Mode test assembly’si Core ve Samples assembly’lerini doğrular. Determinizm, kapı fiziği, encounter lifecycle, sample combat ve assembly bağımlılık sınırları test edilir.
+Package içindeki `DungeonWeaver.Core.Tests.Editor` yalnızca Core'a referans verir. Assets içindeki `DungeonWeaver.Prototype.Tests.Editor` ise sample combat, enemy, UI focus ve debug input davranışlarını doğrular.
 
 ## Kullanım
 
@@ -82,9 +87,15 @@ UI input alanı odaktayken movement, attack ve debug clear girişleri engellenir
 3. Locked odada kendi enemy, puzzle, timer veya boss sisteminizi başlatın.
 4. Tamamlandığında `TryClearRoom(roomId)` çağırın; Core pending kayıtlarını temizler ve kapıları açar.
 
-## Paketleme durumu
+## UPM kurulumu
 
-Bu aşamada gerçek bir Unity Package Manager paketi oluşturulmadı; `package.json` eklenmedi ve kod `Packages` klasörüne taşınmadı. Mevcut Core/Samples/Editor/Tests sınırı, sonraki aşamada `Runtime`, `Editor`, `Tests` ve `Samples~` içeren UPM yapısına taşınmaya hazırdır.
+Unity Package Manager içindeki **Add package from git URL** alanına şunu girin:
+
+```text
+https://github.com/muhammedcanarica/dungeon-weaver.git?path=/Packages/com.muhammedcanarica.dungeon-weaver
+```
+
+Paket yalnızca Core Runtime ve Editor entegrasyonunu getirir. Repository'nin `Assets/Scripts/ProceduralDungeon/Samples/Prototype` klasörü development/demo host projesine aittir ve pakete dahil değildir.
 
 ## Kapsam dışı
 

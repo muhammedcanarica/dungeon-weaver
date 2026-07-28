@@ -1,5 +1,5 @@
 {
-    "name": "DungeonWeaver.Tests.Editor",
+    "name": "DungeonWeaver.Prototype.Tests.Editor",
     "rootNamespace": "ProceduralDungeon.Tests",
     "references": [
         "DungeonWeaver.Core",

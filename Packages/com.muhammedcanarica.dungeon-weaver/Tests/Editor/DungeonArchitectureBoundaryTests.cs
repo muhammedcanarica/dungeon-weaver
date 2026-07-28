@@ -19,18 +19,14 @@ namespace ProceduralDungeon.Tests
             Assert.That(references, Does.Not.Contain("Unity.InputSystem"));
             Assert.That(references, Does.Not.Contain("UnityEngine.UI"));
             Assert.That(references, Does.Not.Contain("UnityEditor"));
-            Assert.That(typeof(DungeonEnemy).Assembly.GetName().Name,
-                Is.EqualTo("DungeonWeaver.Samples.Prototype"));
             Assert.That(GetType().Assembly.GetName().Name,
-                Is.EqualTo("DungeonWeaver.Tests.Editor"));
+                Is.EqualTo("DungeonWeaver.Core.Tests.Editor"));
         }
 
         [Test]
         public void CoreSources_DoNotUsePrototypeCombatOrDirectInputTypes()
         {
-            string root = Path.Combine(Application.dataPath, "Scripts", "ProceduralDungeon");
-            string sampleRoot = Path.Combine(root, "Samples") + Path.DirectorySeparatorChar;
-            string editorRoot = Path.Combine(root, "Editor") + Path.DirectorySeparatorChar;
+            string root = Path.Combine(PackageRoot(), "Runtime");
             string[] forbidden =
             {
                 "UnityEngine.InputSystem", "UnityEngine.UI", "Keyboard",
@@ -39,9 +35,7 @@ namespace ProceduralDungeon.Tests
             };
 
             string[] coreFiles = Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories)
-                .Where(path => !path.StartsWith(sampleRoot) && !path.StartsWith(editorRoot))
-                .OrderBy(path => path)
-                .ToArray();
+                .OrderBy(path => path).ToArray();
             Assert.That(coreFiles, Is.Not.Empty);
             for (int fileIndex = 0; fileIndex < coreFiles.Length; fileIndex++)
             {
@@ -53,23 +47,35 @@ namespace ProceduralDungeon.Tests
         }
 
         [Test]
-        public void AssemblyDefinitions_ExpressOneWayRuntimeBoundary()
+        public void PackageManifestAndAssemblyDefinitions_AreRuntimeSafe()
         {
-            string root = Path.Combine(Application.dataPath, "Scripts", "ProceduralDungeon");
-            string core = File.ReadAllText(Path.Combine(root, "DungeonWeaver.Core.asmdef"));
-            string sample = File.ReadAllText(Path.Combine(root, "Samples", "Prototype",
-                "DungeonWeaver.Samples.Prototype.asmdef"));
+            string root = PackageRoot();
+            string manifest = File.ReadAllText(Path.Combine(root, "package.json"));
+            string core = File.ReadAllText(Path.Combine(root, "Runtime",
+                "DungeonWeaver.Core.asmdef"));
             string editor = File.ReadAllText(Path.Combine(root, "Editor",
                 "DungeonWeaver.Editor.asmdef"));
+            string tests = File.ReadAllText(Path.Combine(root, "Tests", "Editor",
+                "DungeonWeaver.Core.Tests.Editor.asmdef"));
 
+            Assert.That(manifest, Does.Contain("com.muhammedcanarica.dungeon-weaver"));
+            Assert.That(manifest, Does.Contain("\"version\": \"0.1.0\""));
             Assert.That(core, Does.Not.Contain("DungeonWeaver.Samples.Prototype"));
             Assert.That(core, Does.Not.Contain("Unity.InputSystem"));
             Assert.That(core, Does.Not.Contain("Unity.ugui"));
-            Assert.That(sample, Does.Contain("DungeonWeaver.Core"));
-            Assert.That(sample, Does.Contain("Unity.InputSystem"));
-            Assert.That(sample, Does.Contain("Unity.ugui"));
             Assert.That(editor, Does.Contain("DungeonWeaver.Core"));
             Assert.That(editor, Does.Contain("\"Editor\""));
+            Assert.That(tests, Does.Contain("DungeonWeaver.Core"));
+            Assert.That(tests, Does.Not.Contain("DungeonWeaver.Samples.Prototype"));
+        }
+
+        private static string PackageRoot()
+        {
+            UnityEditor.PackageManager.PackageInfo package =
+                UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(DungeonGenerator).Assembly);
+            Assert.That(package, Is.Not.Null);
+            Assert.That(package.name, Is.EqualTo("com.muhammedcanarica.dungeon-weaver"));
+            return package.resolvedPath;
         }
     }
 }

@@ -17,6 +17,12 @@
       },
       "hash": "c14de1e6dc01ab42d2bb358730cff954bce0ce6b"
     },
+    "com.muhammedcanarica.dungeon-weaver": {
+      "version": "file:com.muhammedcanarica.dungeon-weaver",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {}
+    },
     "com.unity.2d.animation": {
       "version": "13.0.4",
       "depth": 0,

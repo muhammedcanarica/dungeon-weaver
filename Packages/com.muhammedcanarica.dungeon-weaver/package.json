@@ -1,0 +1,11 @@
+{
+  "name": "com.muhammedcanarica.dungeon-weaver",
+  "version": "0.1.0",
+  "displayName": "Dungeon Weaver",
+  "description": "Seed-based, deterministic, and reusable 2D procedural dungeon generation and runtime package.",
+  "unity": "6000.0",
+  "author": {
+    "name": "muhammedcanarica",
+    "url": "https://github.com/muhammedcanarica"
+  }
+}
