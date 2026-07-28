@@ -442,6 +442,7 @@ GameObject:
   - component: {fileID: 404606921}
   - component: {fileID: 404606920}
   - component: {fileID: 404606919}
+  - component: {fileID: 404606924}
   m_Layer: 0
   m_Name: RuntimeDungeonUI
   m_TagString: Untagged
@@ -466,6 +467,21 @@ MonoBehaviour:
   generateButton: {fileID: 1342888790}
   regenerateButton: {fileID: 1839198313}
   statusText: {fileID: 467276351}
+--- !u!114 &404606924
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 404606918}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e36d5112b1c641c3a2b5a4d9ee741c05, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: DungeonWeaver.Samples.Prototype::ProceduralDungeon.PrototypeHealthUI
+  playerHealth: {fileID: 133902456}
+  filledColor: {r: 0.24, g: 0.93, b: 0.48, a: 1}
+  emptyColor: {r: 0.13, g: 0.17, b: 0.23, a: 0.9}
 --- !u!114 &404606920
 MonoBehaviour:
   m_ObjectHideFlags: 0

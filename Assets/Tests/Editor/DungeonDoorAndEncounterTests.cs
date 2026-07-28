@@ -18,6 +18,7 @@ namespace ProceduralDungeon.Tests
         private GameObject eventSystemObject;
         private GameObject canvasObject;
         private GameObject inputObject;
+        private GameObject healthUiObject;
         private Tile floorTile;
         private Tile wallTile;
         private Grid grid;
@@ -35,6 +36,8 @@ namespace ProceduralDungeon.Tests
         private TopDownPlayerController playerController;
         private TopDownPlayerAttack playerAttack;
         private PrototypePlayerHealth playerHealth;
+        private PrototypePlayerDamageFeedback playerFeedback;
+        private PrototypeHealthUI healthUi;
         private DungeonPrototypeDeathRespawn deathRespawn;
         private Collider2D playerCollider;
 
@@ -70,7 +73,14 @@ namespace ProceduralDungeon.Tests
             playerController = playerObject.AddComponent<TopDownPlayerController>();
             playerAttack = playerObject.AddComponent<TopDownPlayerAttack>();
             playerHealth = playerObject.AddComponent<PrototypePlayerHealth>();
+            playerObject.AddComponent<SpriteRenderer>();
+            playerFeedback = playerObject.AddComponent<PrototypePlayerDamageFeedback>();
+            InvokeLifecycle(playerFeedback, "OnEnable");
             deathRespawn = playerObject.AddComponent<DungeonPrototypeDeathRespawn>();
+
+            healthUiObject = new GameObject("Door Encounter Test Health UI", typeof(Canvas));
+            healthUi = healthUiObject.AddComponent<PrototypeHealthUI>();
+            InvokeLifecycle(healthUi, "OnEnable");
 
             DungeonPlayerSpawner spawner = dungeonObject.AddComponent<DungeonPlayerSpawner>();
             spawner.SetTrackedActor(playerObject.transform);
@@ -105,6 +115,7 @@ namespace ProceduralDungeon.Tests
             if (eventSystemObject != null) Object.DestroyImmediate(eventSystemObject);
             if (canvasObject != null) Object.DestroyImmediate(canvasObject);
             if (inputObject != null) Object.DestroyImmediate(inputObject);
+            if (healthUiObject != null) Object.DestroyImmediate(healthUiObject);
             if (dungeonObject != null) Object.DestroyImmediate(dungeonObject);
             if (gridObject != null) Object.DestroyImmediate(gridObject);
             if (playerObject != null) Object.DestroyImmediate(playerObject);
@@ -660,6 +671,79 @@ namespace ProceduralDungeon.Tests
         }
 
         [Test]
+        public void HealthUi_TracksHealthEventsWithoutDuplicateSegmentsOrInputCapture()
+        {
+            Assert.That(healthUi.DisplayedHealth, Is.EqualTo(5));
+            Assert.That(healthUi.DisplayedMaxHealth, Is.EqualTo(5));
+            Assert.That(healthUi.SegmentCount, Is.EqualTo(5));
+            for (int i = 0; i < healthUi.SegmentCount; i++)
+            {
+                Assert.That(healthUi.IsSegmentFilled(i), Is.True);
+                Assert.That(healthUi.IsSegmentRaycastTarget(i), Is.False);
+            }
+
+            Assert.That(playerHealth.TakeDamage(1), Is.True);
+            Assert.That(healthUi.DisplayedHealth, Is.EqualTo(4));
+            Assert.That(healthUi.IsSegmentFilled(4), Is.False);
+            Assert.That(playerHealth.TakeDamage(1), Is.False);
+            Assert.That(healthUi.DisplayedHealth, Is.EqualTo(4));
+
+            healthUi.enabled = false;
+            InvokeLifecycle(healthUi, "OnDisable");
+            playerHealth.AdvanceInvulnerability(playerHealth.InvulnerabilityDuration);
+            Assert.That(playerHealth.TakeDamage(1), Is.True);
+            Assert.That(healthUi.DisplayedHealth, Is.EqualTo(4));
+            healthUi.enabled = true;
+            InvokeLifecycle(healthUi, "OnEnable");
+            Assert.That(healthUi.DisplayedHealth, Is.EqualTo(3));
+
+            playerHealth.ResetHealth();
+            Assert.That(healthUi.DisplayedHealth, Is.EqualTo(5));
+            Assert.That(playerHealth.TakeDamage(playerHealth.MaxHealth), Is.True);
+            Assert.That(healthUi.DisplayedHealth, Is.Zero);
+            playerHealth.ResetHealth();
+
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            Assert.That(runtime.RegenerateCurrentSeed(), Is.True);
+            Assert.That(runtime.RegenerateCurrentSeed(), Is.True);
+            Assert.That(healthUi.DisplayedHealth, Is.EqualTo(5));
+            Assert.That(healthUi.SegmentCount, Is.EqualTo(5));
+            Assert.That(healthUi.GetComponentsInChildren<Image>(true).Length, Is.EqualTo(5));
+        }
+
+        [Test]
+        public void PlayerDamageFeedback_PrioritizesDeathAndResetsAfterRespawn()
+        {
+            Assert.That(playerFeedback.CurrentState, Is.EqualTo(PrototypePlayerFeedbackState.Normal));
+            Assert.That(playerHealth.TakeDamage(1), Is.True);
+            Assert.That(playerFeedback.CurrentState, Is.EqualTo(PrototypePlayerFeedbackState.Damage));
+            playerFeedback.AdvanceFeedback(playerFeedback.FeedbackDuration);
+            Assert.That(playerFeedback.CurrentState, Is.EqualTo(PrototypePlayerFeedbackState.Normal));
+
+            playerHealth.AdvanceInvulnerability(playerHealth.InvulnerabilityDuration);
+            Assert.That(playerHealth.TakeDamage(playerHealth.MaxHealth), Is.True);
+            Assert.That(playerFeedback.CurrentState, Is.EqualTo(PrototypePlayerFeedbackState.Death));
+            playerFeedback.AdvanceFeedback(1f);
+            Assert.That(playerFeedback.CurrentState, Is.EqualTo(PrototypePlayerFeedbackState.Death));
+
+            playerHealth.ResetHealth();
+            Assert.That(playerFeedback.CurrentState, Is.EqualTo(PrototypePlayerFeedbackState.Normal));
+        }
+
+        [Test]
+        public void PlayerDamageFeedback_WithoutSpriteRenderer_DoesNotThrow()
+        {
+            var feedbackObject = new GameObject("Feedback Without Sprite");
+            PrototypePlayerHealth health = feedbackObject.AddComponent<PrototypePlayerHealth>();
+            PrototypePlayerDamageFeedback feedback = feedbackObject.AddComponent<PrototypePlayerDamageFeedback>();
+            InvokeLifecycle(feedback, "OnEnable");
+
+            Assert.DoesNotThrow(() => health.TakeDamage(1));
+            Assert.That(feedback.CurrentState, Is.EqualTo(PrototypePlayerFeedbackState.Damage));
+            Object.DestroyImmediate(feedbackObject);
+        }
+
+        [Test]
         public void EnemyContactDamage_RequiresLockedCurrentRoomAndHonorsPlayerIFrames()
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
@@ -710,6 +794,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(enemyPlanSignature));
             Assert.That(areaTracker.CurrentRoomId, Is.EqualTo(roles.StartRoomId));
             Assert.That(playerHealth.CurrentHealth, Is.EqualTo(playerHealth.MaxHealth));
+            Assert.That(healthUi.DisplayedHealth, Is.EqualTo(healthUi.DisplayedMaxHealth));
             Assert.That(playerHealth.IsDead, Is.False);
             Assert.That(playerController.enabled, Is.True);
             Assert.That(playerAttack.enabled, Is.True);
@@ -1216,6 +1301,14 @@ namespace ProceduralDungeon.Tests
             FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null, $"Missing field {target.GetType().Name}.{fieldName}");
             field.SetValue(target, value);
+        }
+
+        private static void InvokeLifecycle(object target, string methodName)
+        {
+            MethodInfo method = target.GetType().GetMethod(methodName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null, $"Missing lifecycle method {target.GetType().Name}.{methodName}");
+            method.Invoke(target, null);
         }
     }
 }
