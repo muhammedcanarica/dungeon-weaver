@@ -9,9 +9,11 @@ namespace ProceduralDungeon
         [SerializeField, Min(0f)] private float invulnerabilityDuration = 0.75f;
 
         private float invulnerabilityRemaining;
+        private int currentHealth;
+        private bool initialized;
 
-        public int MaxHealth => maxHealth;
-        public int CurrentHealth { get; private set; }
+        public int MaxHealth => Mathf.Max(1, maxHealth);
+        public int CurrentHealth => initialized ? currentHealth : MaxHealth;
         public bool IsDead { get; private set; }
         public bool IsInvulnerable => invulnerabilityRemaining > 0f;
         public float InvulnerabilityDuration => invulnerabilityDuration;
@@ -22,9 +24,7 @@ namespace ProceduralDungeon
 
         private void Awake()
         {
-            maxHealth = Mathf.Max(1, maxHealth);
-            invulnerabilityDuration = Mathf.Max(0f, invulnerabilityDuration);
-            CurrentHealth = maxHealth;
+            EnsureInitialized();
         }
 
         private void Update()
@@ -34,14 +34,15 @@ namespace ProceduralDungeon
 
         public bool TakeDamage(int amount)
         {
+            EnsureInitialized();
             if (amount <= 0 || IsDead || IsInvulnerable) return false;
 
-            CurrentHealth = Mathf.Max(0, CurrentHealth - amount);
+            currentHealth = Mathf.Max(0, currentHealth - amount);
             invulnerabilityRemaining = invulnerabilityDuration;
             HealthChanged?.Invoke(CurrentHealth, MaxHealth);
             Damaged?.Invoke(amount);
 
-            if (CurrentHealth != 0) return true;
+            if (currentHealth != 0) return true;
 
             IsDead = true;
             Died?.Invoke();
@@ -50,7 +51,8 @@ namespace ProceduralDungeon
 
         public void ResetHealth()
         {
-            CurrentHealth = MaxHealth;
+            EnsureInitialized();
+            currentHealth = MaxHealth;
             IsDead = false;
             invulnerabilityRemaining = 0f;
             HealthChanged?.Invoke(CurrentHealth, MaxHealth);
@@ -66,6 +68,18 @@ namespace ProceduralDungeon
         {
             maxHealth = Mathf.Max(1, maxHealth);
             invulnerabilityDuration = Mathf.Max(0f, invulnerabilityDuration);
+        }
+
+        private void EnsureInitialized()
+        {
+            if (initialized) return;
+
+            maxHealth = Mathf.Max(1, maxHealth);
+            invulnerabilityDuration = Mathf.Max(0f, invulnerabilityDuration);
+            currentHealth = maxHealth;
+            invulnerabilityRemaining = 0f;
+            IsDead = false;
+            initialized = true;
         }
     }
 }

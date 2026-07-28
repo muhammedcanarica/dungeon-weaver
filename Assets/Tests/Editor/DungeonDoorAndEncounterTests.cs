@@ -646,6 +646,20 @@ namespace ProceduralDungeon.Tests
         }
 
         [Test]
+        public void PlayerHealth_DisableEnable_DoesNotResetCurrentHealth()
+        {
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(5));
+            Assert.That(playerHealth.TakeDamage(1), Is.True);
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(4));
+
+            playerHealth.enabled = false;
+            playerHealth.enabled = true;
+
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(4));
+            Assert.That(playerHealth.IsDead, Is.False);
+        }
+
+        [Test]
         public void EnemyContactDamage_RequiresLockedCurrentRoomAndHonorsPlayerIFrames()
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
