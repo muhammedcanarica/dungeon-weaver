@@ -129,8 +129,11 @@ namespace ProceduralDungeon.Tests
                 Assert.That(door.RepresentsConnection(doorway.ConnectionIndex), Is.True);
                 Assert.That(door.EntranceCell, Is.EqualTo(doorway.EntranceCell));
                 Assert.That(door.OutwardDirection, Is.EqualTo(doorway.OutwardDirection));
-                Vector3 expected = grid.GetCellCenterWorld(new Vector3Int(
+                Vector3 entranceWorld = grid.GetCellCenterWorld(new Vector3Int(
                     doorway.EntranceCell.x, doorway.EntranceCell.y, 0));
+                Vector3 corridorWorld = grid.GetCellCenterWorld(new Vector3Int(
+                    doorway.FirstCorridorCell.x, doorway.FirstCorridorCell.y, 0));
+                Vector3 expected = (entranceWorld + corridorWorld) * 0.5f;
                 Assert.That(door.transform.position, Is.EqualTo(expected));
             }
         }
@@ -142,6 +145,9 @@ namespace ProceduralDungeon.Tests
 
             Assert.That(doorRegistry.OpenDoorCount, Is.EqualTo(doorRegistry.DoorCount));
             Assert.That(doorRegistry.ClosedDoorCount, Is.Zero);
+            Assert.That(doorRegistry.CorridorWidth, Is.EqualTo(3));
+            bool foundHorizontal = false;
+            bool foundVertical = false;
             for (int i = 0; i < doorRegistry.Doors.Count; i++)
             {
                 DungeonDoor door = doorRegistry.Doors[i];
@@ -149,15 +155,26 @@ namespace ProceduralDungeon.Tests
                     || door.OutwardDirection == DoorwayDirection.Down;
                 Assert.That(door.Orientation, Is.EqualTo(horizontal
                     ? DungeonDoorOrientation.Horizontal : DungeonDoorOrientation.Vertical));
-                Assert.That(Mathf.DeltaAngle(door.transform.eulerAngles.z, horizontal ? 0f : 90f),
+                Assert.That(Mathf.DeltaAngle(door.transform.eulerAngles.z, 0f),
                     Is.EqualTo(0f).Within(0.01f));
-                Assert.That(door.WorldSize.x, horizontal ? Is.GreaterThan(door.WorldSize.y)
-                    : Is.LessThan(door.WorldSize.y));
+                Assert.That(door.PassageSpan, Is.EqualTo(3f).Within(0.001f));
+                Assert.That(horizontal ? door.WorldSize.x : door.WorldSize.y,
+                    Is.EqualTo(3f).Within(0.001f));
+                Assert.That(horizontal ? door.WorldSize.y : door.WorldSize.x,
+                    Is.EqualTo(0.2f).Within(0.001f));
+                Assert.That(door.ColliderBounds.size.x,
+                    Is.EqualTo(door.WorldSize.x).Within(0.001f));
+                Assert.That(door.ColliderBounds.size.y,
+                    Is.EqualTo(door.WorldSize.y).Within(0.001f));
                 Assert.That(door.DoorCollider.isTrigger, Is.False);
                 Assert.That(door.DoorCollider.enabled, Is.False);
                 Assert.That(door.DoorRenderer.enabled, Is.True);
                 Assert.That(door.DoorRenderer.color.a, Is.LessThan(1f));
+                foundHorizontal |= horizontal;
+                foundVertical |= !horizontal;
             }
+            Assert.That(foundHorizontal, Is.True);
+            Assert.That(foundVertical, Is.True);
         }
 
         [Test]
@@ -173,74 +190,128 @@ namespace ProceduralDungeon.Tests
                 Assert.That(state.State, Is.EqualTo(generator.Rooms[i].RoomId == roles.StartRoomId
                     ? RoomEncounterState.Cleared : RoomEncounterState.Inactive));
             }
+
+            FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            MoveThroughToEntrance(exit, entry);
+            MoveThroughToEntrance(entry, exit);
+            Assert.That(Encounter(roles.StartRoomId).State, Is.EqualTo(RoomEncounterState.Cleared));
+            Assert.That(encounters.HasPendingActivation, Is.False);
+            Assert.That(enemyRegistry.GetLiveEnemyCount(roles.StartRoomId), Is.Zero);
         }
 
         [Test]
-        public void EnteringNewRoom_LocksOnlyItsDoorsAndDefersOverlappingEntranceDoor()
+        public void DoorwayEntry_RemainsPendingUntilPlayerIsSafelyInsideRoom()
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
             MoveThroughToEntrance(exit, entry);
 
-            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Locked));
-            Assert.That(encounters.ActiveLockedRoomId, Is.EqualTo(entry.RoomId));
-            Assert.That(encounters.PendingDoorCount, Is.GreaterThanOrEqualTo(1));
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Inactive));
+            Assert.That(encounters.HasPendingActivation, Is.True);
+            Assert.That(encounters.PendingActivationRoomId, Is.EqualTo(entry.RoomId));
+            Assert.That(enemyRegistry.GetLiveEnemyCount(entry.RoomId), Is.Zero);
             Assert.That(doorRegistry.TryGetDoor(entry.RoomId, entry.ConnectionIndex,
                 out DungeonDoor entranceDoor), Is.True);
             Assert.That(entranceDoor.IsOpen, Is.True);
             Assert.That(entranceDoor.DoorCollider.enabled, Is.False);
 
-            Assert.That(doorRegistry.TryGetDoorsForRoom(entry.RoomId,
-                out IReadOnlyList<DungeonDoor> lockedRoomDoors), Is.True);
-            int alreadyClosed = 0;
-            for (int i = 0; i < lockedRoomDoors.Count; i++) if (!lockedRoomDoors[i].IsOpen) alreadyClosed++;
-            Assert.That(alreadyClosed, Is.EqualTo(lockedRoomDoors.Count - encounters.PendingDoorCount));
-            Assert.That(doorRegistry.TryGetDoorsForRoom(roles.StartRoomId,
-                out IReadOnlyList<DungeonDoor> startDoors), Is.True);
-            for (int i = 0; i < startDoors.Count; i++) Assert.That(startDoors[i].IsOpen, Is.True);
-        }
+            MovePlayerToWorld(entranceDoor.transform.position);
+            Assert.That(encounters.ProcessPendingActivation(), Is.False);
+            Assert.That(encounters.HasPendingActivation, Is.True);
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Inactive));
 
-        [Test]
-        public void PendingDoor_ClosesAfterPlayerMovesSafelyInside()
-        {
-            Assert.That(runtime.GenerateDungeon(12345), Is.True);
-            FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
-            MoveThroughToEntrance(exit, entry);
-            Assert.That(encounters.PendingDoorCount, Is.GreaterThan(0));
+            MoveToCell(InteriorCell(entry));
+            Assert.That(encounters.ProcessPendingActivation(), Is.True);
 
-            MoveToCell(RoomCenter(FindRoom(entry.RoomId)));
-            encounters.ProcessPendingClosures();
-
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Locked));
+            Assert.That(encounters.HasPendingActivation, Is.False);
             Assert.That(encounters.PendingDoorCount, Is.Zero);
-            Assert.That(doorRegistry.TryGetDoorsForRoom(entry.RoomId,
-                out IReadOnlyList<DungeonDoor> roomDoors), Is.True);
-            for (int i = 0; i < roomDoors.Count; i++)
-            {
-                Assert.That(roomDoors[i].IsOpen, Is.False);
-                Assert.That(roomDoors[i].DoorCollider.enabled, Is.True);
-                Assert.That(roomDoors[i].DoorRenderer.color.a, Is.EqualTo(1f));
-            }
+            Assert.That(enemyRegistry.GetLiveEnemyCount(entry.RoomId),
+                Is.EqualTo(enemyRegistry.GetPlannedEnemyCount(entry.RoomId)));
+            AssertRoomDoorsClosed(entry.RoomId);
+            AssertRoomDoorsOpen(roles.StartRoomId);
         }
 
         [Test]
-        public void PendingEntranceDoor_DoesNotCloseWithPlayerBackInCorridor()
+        public void BackingOutBeforeInterior_CancelsPendingWithoutSpawningAndReentryLocksOnce()
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            int lockedEvents = 0;
+            encounters.EncounterStateChanged += change =>
+            {
+                if (change.RoomId == entry.RoomId
+                    && change.CurrentState == RoomEncounterState.Locked) lockedEvents++;
+            };
             MoveThroughToEntrance(exit, entry);
-            Assert.That(doorRegistry.TryGetDoor(entry.RoomId, entry.ConnectionIndex,
-                out DungeonDoor entranceDoor), Is.True);
 
             MoveToCell(entry.FirstCorridorCell);
-            encounters.ProcessPendingClosures();
-            Assert.That(entranceDoor.IsOpen, Is.True);
-            Assert.That(encounters.PendingDoorCount, Is.GreaterThan(0));
+            Assert.That(encounters.HasPendingActivation, Is.False);
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Inactive));
+            Assert.That(enemyRegistry.GetLiveEnemyCount(entry.RoomId), Is.Zero);
+            AssertRoomDoorsOpen(entry.RoomId);
 
             MoveToCell(entry.EntranceCell);
-            MoveToCell(RoomCenter(FindRoom(entry.RoomId)));
+            Assert.That(encounters.HasPendingActivation, Is.True);
+            MoveToCell(InteriorCell(entry));
+            Assert.That(encounters.ProcessPendingActivation(), Is.True);
+            Assert.That(encounters.ProcessPendingActivation(), Is.False);
+            Assert.That(lockedEvents, Is.EqualTo(1));
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Locked));
+            AssertRoomDoorsClosed(entry.RoomId);
+        }
+
+        [Test]
+        public void LeavingUnexpectedlyAfterLock_CancelsEncounterWithoutTeleportAndCanRelock()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            MoveThroughToEntrance(exit, entry);
+            CompleteRoomEntry(entry);
+            Vector3 corridorWorld = grid.GetCellCenterWorld(new Vector3Int(
+                entry.FirstCorridorCell.x, entry.FirstCorridorCell.y, 0));
+
+            MoveToCell(entry.FirstCorridorCell);
+
+            Assert.That(playerObject.transform.position.x, Is.EqualTo(corridorWorld.x).Within(0.001f));
+            Assert.That(playerObject.transform.position.y, Is.EqualTo(corridorWorld.y).Within(0.001f));
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Inactive));
+            Assert.That(encounters.HasPendingActivation, Is.False);
+            Assert.That(enemyRegistry.GetLiveEnemyCount(entry.RoomId), Is.Zero);
+            AssertRoomDoorsOpen(entry.RoomId);
+
+            MoveToCell(entry.EntranceCell);
+            Assert.That(encounters.HasPendingActivation, Is.True);
+            MoveToCell(InteriorCell(entry));
+            Assert.That(encounters.ProcessPendingActivation(), Is.True);
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Locked));
+            AssertRoomDoorsClosed(entry.RoomId);
+        }
+
+        [Test]
+        public void PendingDoorClosure_CompletesAfterOverlapEndsEvenIfActiveRoomIdChanges()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            MoveThroughToEntrance(exit, entry);
+            CompleteRoomEntry(entry);
+            Assert.That(doorRegistry.TryGetDoor(entry.RoomId, entry.ConnectionIndex,
+                out DungeonDoor door), Is.True);
+            door.Open();
+            MovePlayerToWorld(door.transform.position);
+
+            Assert.That(InvokeCloseRoomDoorsSafely(entry.RoomId), Is.False);
+            Assert.That(encounters.PendingDoorCount, Is.EqualTo(1));
+            Assert.That(door.IsOpen, Is.True);
+
+            SetField(roomStates, "currentActiveRoomId", DungeonRoomStateController.InvalidId);
+            MovePlayerToWorld(grid.GetCellCenterWorld(new Vector3Int(
+                InteriorCell(entry).x, InteriorCell(entry).y, 0)));
             encounters.ProcessPendingClosures();
-            Assert.That(entranceDoor.IsOpen, Is.False);
+
             Assert.That(encounters.PendingDoorCount, Is.Zero);
+            Assert.That(door.IsOpen, Is.False);
+            Assert.That(door.DoorCollider.enabled, Is.True);
         }
 
         [Test]
@@ -249,15 +320,14 @@ namespace ProceduralDungeon.Tests
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
             MoveThroughToEntrance(exit, entry);
-            MoveToCell(entry.EntranceCell - DungeonDoorwayBuilder.DirectionOffset(entry.OutwardDirection));
-            encounters.ProcessPendingClosures();
+            CompleteRoomEntry(entry);
             Assert.That(doorRegistry.TryGetDoor(entry.RoomId, entry.ConnectionIndex,
                 out DungeonDoor door), Is.True);
 
-            Assert.That(PlayerCastHitsDoor(door, entry.OutwardDirection), Is.True);
+            AssertPassageBlockedAtCenterAndEdges(door, entry.OutwardDirection, true);
             Assert.That(encounters.TryDebugClearActiveRoom(), Is.True);
             Physics2D.SyncTransforms();
-            Assert.That(PlayerCastHitsDoor(door, entry.OutwardDirection), Is.False);
+            AssertPassageBlockedAtCenterAndEdges(door, entry.OutwardDirection, false);
             Assert.That(door.DoorCollider.enabled, Is.False);
         }
 
@@ -267,8 +337,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             FindPassageFromStart(out DoorwayData startDoorway, out DoorwayData otherDoorway);
             MoveThroughToEntrance(startDoorway, otherDoorway);
-            MoveToCell(RoomCenter(FindRoom(otherDoorway.RoomId)));
-            encounters.ProcessPendingClosures();
+            CompleteRoomEntry(otherDoorway);
             int visitOrder = RoomState(otherDoorway.RoomId).FirstVisitOrder;
 
             Assert.That(encounters.TryDebugClearActiveRoom(), Is.True);
@@ -289,6 +358,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
             MoveThroughToEntrance(exit, entry);
+            CompleteRoomEntry(entry);
             EventSystem eventSystem = EventSystem.current;
             if (eventSystem == null)
             {
@@ -385,6 +455,7 @@ namespace ProceduralDungeon.Tests
             long signature = enemyRegistry.PlanSignature;
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
             MoveThroughToEntrance(exit, entry);
+            CompleteRoomEntry(entry);
             Assert.That(enemyRegistry.LiveEnemyCount, Is.GreaterThan(0));
 
             Assert.That(runtime.RegenerateCurrentSeed(), Is.True);
@@ -418,11 +489,12 @@ namespace ProceduralDungeon.Tests
         }
 
         [Test]
-        public void LockedRoom_SpawnsOnceAndEnemyMovementRequiresTheActiveLockedRoom()
+        public void LockedRoom_SpawnsOnceAndLeavingCancelsItsLiveEnemies()
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
             MoveThroughToEntrance(exit, entry);
+            CompleteRoomEntry(entry);
 
             int planned = enemyRegistry.GetPlannedEnemyCount(entry.RoomId);
             Assert.That(enemyRegistry.GetLiveEnemyCount(entry.RoomId), Is.EqualTo(planned));
@@ -444,8 +516,9 @@ namespace ProceduralDungeon.Tests
             Assert.That(FindRoom(entry.RoomId).Bounds.Contains(Vector2Int.FloorToInt(after)), Is.True);
 
             MoveToCell(entry.FirstCorridorCell);
-            Assert.That(enemy.TryMoveTowardsPlayer(0.25f), Is.False);
-            Assert.That(enemy.GetComponent<Rigidbody2D>().position, Is.EqualTo(after));
+            Assert.That(enemy == null, Is.True);
+            Assert.That(enemyRegistry.GetLiveEnemyCount(entry.RoomId), Is.Zero);
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Inactive));
         }
 
         [Test]
@@ -454,6 +527,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
             MoveThroughToEntrance(exit, entry);
+            CompleteRoomEntry(entry);
             Assert.That(enemyRegistry.TryGetLiveEnemiesForRoom(entry.RoomId,
                 out IReadOnlyList<DungeonEnemy> liveEnemies), Is.True);
             DungeonEnemy enemy = liveEnemies[0];
@@ -485,8 +559,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
             MoveThroughToEntrance(exit, entry);
-            MoveToCell(RoomCenter(FindRoom(entry.RoomId)));
-            encounters.ProcessPendingClosures();
+            CompleteRoomEntry(entry);
             Assert.That(enemyRegistry.TryGetLiveEnemiesForRoom(entry.RoomId,
                 out IReadOnlyList<DungeonEnemy> liveEnemies), Is.True);
             var enemiesToKill = new List<DungeonEnemy>(liveEnemies);
@@ -512,6 +585,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             FindPassageFromStart(out DoorwayData startDoorway, out DoorwayData otherDoorway);
             MoveThroughToEntrance(startDoorway, otherDoorway);
+            CompleteRoomEntry(otherDoorway);
             Assert.That(enemyRegistry.GetLiveEnemyCount(otherDoorway.RoomId), Is.GreaterThan(0));
             int clearEvents = 0;
             encounters.EncounterStateChanged += change =>
@@ -558,6 +632,7 @@ namespace ProceduralDungeon.Tests
             int count = doorRegistry.DoorCount;
             FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
             MoveThroughToEntrance(exit, entry);
+            CompleteRoomEntry(entry);
             Assert.That(encounters.TryDebugClearActiveRoom(), Is.True);
 
             Assert.That(runtime.RegenerateCurrentSeed(), Is.True);
@@ -569,6 +644,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(enemySignature));
             Assert.That(enemyRegistry.LiveEnemyCount, Is.Zero);
             Assert.That(encounters.PendingDoorCount, Is.Zero);
+            Assert.That(encounters.HasPendingActivation, Is.False);
             Assert.That(Encounter(roles.StartRoomId).State, Is.EqualTo(RoomEncounterState.Cleared));
             for (int i = 0; i < generator.Rooms.Count; i++)
                 if (generator.Rooms[i].RoomId != roles.StartRoomId)
@@ -611,6 +687,27 @@ namespace ProceduralDungeon.Tests
             Assert.That(second12345, Is.EqualTo(first12345));
         }
 
+        [Test]
+        public void CorridorWidth_ControlsDoorSpanAndParticipatesInLayoutSignature()
+        {
+            SetField(renderer, "corridorWidth", 1);
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            long widthOneSignature = doorRegistry.LayoutSignature;
+            AssertDoorSpans(1f);
+
+            SetField(renderer, "corridorWidth", 5);
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            long widthFiveSignature = doorRegistry.LayoutSignature;
+            AssertDoorSpans(5f);
+
+            SetField(renderer, "corridorWidth", 1);
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+
+            Assert.That(widthFiveSignature, Is.Not.EqualTo(widthOneSignature));
+            Assert.That(doorRegistry.LayoutSignature, Is.EqualTo(widthOneSignature));
+            AssertDoorSpans(1f);
+        }
+
         [TestCase(-54321)]
         [TestCase(int.MinValue)]
         [TestCase(int.MaxValue)]
@@ -640,6 +737,7 @@ namespace ProceduralDungeon.Tests
             encounters.enabled = true;
 
             MoveThroughToEntrance(exit, entry);
+            CompleteRoomEntry(entry);
 
             Assert.That(lockedEvents, Is.EqualTo(1));
         }
@@ -729,6 +827,23 @@ namespace ProceduralDungeon.Tests
             return false;
         }
 
+        private void AssertPassageBlockedAtCenterAndEdges(DungeonDoor door,
+            DoorwayDirection direction, bool expectedBlocked)
+        {
+            Vector2 outward = DungeonDoorwayBuilder.DirectionOffset(direction);
+            Vector2 across = new Vector2(-outward.y, outward.x);
+            float edgeOffset = Mathf.Max(0f, door.PassageSpan * 0.5f - 0.05f);
+            float[] offsets = { 0f, -edgeOffset, edgeOffset };
+            for (int i = 0; i < offsets.Length; i++)
+            {
+                Vector2 start = (Vector2)door.transform.position - outward * 0.75f
+                    + across * offsets[i];
+                MovePlayerToWorld(start);
+                Assert.That(PlayerCastHitsDoor(door, direction), Is.EqualTo(expectedBlocked),
+                    $"Door collision mismatch at passage offset {offsets[i]:0.00}.");
+            }
+        }
+
         private DungeonRoomRuntimeState RoomState(int roomId)
         {
             Assert.That(roomStates.TryGetRoomState(roomId, out DungeonRoomRuntimeState state), Is.True);
@@ -772,6 +887,23 @@ namespace ProceduralDungeon.Tests
             MoveToCell(to.EntranceCell);
         }
 
+        private void CompleteRoomEntry(DoorwayData entry)
+        {
+            MoveToCell(InteriorCell(entry));
+            Assert.That(encounters.ProcessPendingActivation(), Is.True);
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Locked));
+        }
+
+        private void MovePlayerToWorld(Vector3 world)
+        {
+            playerObject.transform.position = new Vector3(
+                world.x, world.y, playerObject.transform.position.z);
+            Rigidbody2D body = playerObject.GetComponent<Rigidbody2D>();
+            body.position = new Vector2(world.x, world.y);
+            body.linearVelocity = Vector2.zero;
+            Physics2D.SyncTransforms();
+        }
+
         private void MoveToCell(Vector2Int cell)
         {
             Vector3 world = grid.GetCellCenterWorld(new Vector3Int(cell.x, cell.y, 0));
@@ -803,6 +935,28 @@ namespace ProceduralDungeon.Tests
         {
             return new Vector2Int(room.Bounds.xMin + (room.Bounds.width - 1) / 2,
                 room.Bounds.yMin + (room.Bounds.height - 1) / 2);
+        }
+
+        private static Vector2Int InteriorCell(DoorwayData doorway)
+        {
+            return doorway.EntranceCell
+                - DungeonDoorwayBuilder.DirectionOffset(doorway.OutwardDirection);
+        }
+
+        private bool InvokeCloseRoomDoorsSafely(int roomId)
+        {
+            MethodInfo method = typeof(DungeonRoomEncounterController).GetMethod(
+                "CloseRoomDoorsSafely", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null);
+            return (bool)method.Invoke(encounters, new object[] { roomId });
+        }
+
+        private void AssertDoorSpans(float expectedSpan)
+        {
+            Assert.That(doorRegistry.CorridorWidth, Is.EqualTo(Mathf.RoundToInt(expectedSpan)));
+            for (int i = 0; i < doorRegistry.Doors.Count; i++)
+                Assert.That(doorRegistry.Doors[i].PassageSpan,
+                    Is.EqualTo(expectedSpan).Within(0.001f));
         }
 
         private int CountSafeCells(RoomData room)

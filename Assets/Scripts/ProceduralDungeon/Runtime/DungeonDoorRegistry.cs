@@ -4,13 +4,12 @@ using UnityEngine;
 
 namespace ProceduralDungeon
 {
-    [RequireComponent(typeof(DungeonDoorwayBuilder))]
+    [RequireComponent(typeof(DungeonDoorwayBuilder), typeof(DungeonTilemapRenderer))]
     public sealed class DungeonDoorRegistry : MonoBehaviour
     {
         private const ulong Offset = 14695981039346656037UL;
         private const ulong Prime = 1099511628211UL;
-        private const float DoorLengthRatio = 0.9f;
-        private const float DoorThicknessRatio = 0.18f;
+        private const float DoorThicknessRatio = 0.2f;
 
         [SerializeField] private Grid grid;
 
@@ -21,10 +20,12 @@ namespace ProceduralDungeon
             new Dictionary<int, IReadOnlyList<DungeonDoor>>();
         private IReadOnlyList<DungeonDoor> readOnlyDoors;
         private DungeonDoorwayBuilder doorwayBuilder;
+        private DungeonTilemapRenderer tilemapRenderer;
         private Transform doorRoot;
         private Sprite runtimeSprite;
         private long layoutSignature;
         private bool hasBuiltDoors;
+        private int builtCorridorWidth;
 
         public int DoorCount => doors.Count;
         public int OpenDoorCount
@@ -40,14 +41,16 @@ namespace ProceduralDungeon
         public int DoorwayAssociationCount => doorwayBuilder != null ? doorwayBuilder.Doorways.Count : 0;
         public long LayoutSignature => layoutSignature;
         public bool HasBuiltDoors => hasBuiltDoors;
+        public int CorridorWidth => builtCorridorWidth;
         public IReadOnlyList<DungeonDoor> Doors => readOnlyDoors ??= doors.AsReadOnly();
 
         public bool BuildDoors()
         {
             ClearDoors();
             CacheComponents();
+            int corridorWidth = tilemapRenderer != null ? tilemapRenderer.CorridorWidth : 0;
             if (doorwayBuilder == null || !doorwayBuilder.IsDoorwayDataCurrent || grid == null
-                || doorwayBuilder.Doorways.Count == 0)
+                || corridorWidth <= 0 || doorwayBuilder.Doorways.Count == 0)
             {
                 Debug.LogError("[DungeonDoorRegistry] Door build rejected because doorway data or Grid is invalid.", this);
                 return false;
@@ -60,8 +63,13 @@ namespace ProceduralDungeon
                 var key = new DoorKey(doorway.RoomId, doorway.EntranceCell, doorway.OutwardDirection);
                 if (!groupsByKey.TryGetValue(key, out DoorBuildGroup group))
                 {
-                    group = new DoorBuildGroup(key);
+                    group = new DoorBuildGroup(key, doorway.FirstCorridorCell);
                     groupsByKey.Add(key, group);
+                }
+                else if (group.FirstCorridorCell != doorway.FirstCorridorCell)
+                {
+                    Debug.LogError("[DungeonDoorRegistry] Coalesced doorway records disagree on their first corridor cell.", this);
+                    return false;
                 }
                 group.ConnectionIndices.Add(doorway.ConnectionIndex);
             }
@@ -75,8 +83,9 @@ namespace ProceduralDungeon
                 new Vector2(0.5f, 0.5f), 1f);
             runtimeSprite.name = "Runtime Dungeon Door Sprite";
 
-            for (int i = 0; i < groups.Count; i++) CreateDoor(groups[i]);
-            layoutSignature = ComputeLayoutSignature(doorwayBuilder.Doorways);
+            for (int i = 0; i < groups.Count; i++) CreateDoor(groups[i], corridorWidth);
+            builtCorridorWidth = corridorWidth;
+            layoutSignature = ComputeLayoutSignature(doorwayBuilder.Doorways, corridorWidth);
             hasBuiltDoors = doors.Count == groups.Count && doors.Count > 0;
             if (!hasBuiltDoors)
             {
@@ -135,6 +144,7 @@ namespace ProceduralDungeon
             readOnlyDoorsByRoom.Clear();
             layoutSignature = 0;
             hasBuiltDoors = false;
+            builtCorridorWidth = 0;
             if (doorRoot != null)
             {
                 doorRoot.gameObject.SetActive(false);
@@ -155,7 +165,22 @@ namespace ProceduralDungeon
             runtimeSprite = null;
         }
 
-        private void CreateDoor(DoorBuildGroup group)
+        public static Vector2 CalculateDoorWorldSize(DoorwayDirection direction,
+            Vector3 cellSize, int corridorWidth)
+        {
+            bool horizontal = direction == DoorwayDirection.Up
+                || direction == DoorwayDirection.Down;
+            float cellWidth = Mathf.Abs(cellSize.x);
+            float cellHeight = Mathf.Abs(cellSize.y);
+            int safeCorridorWidth = Mathf.Max(1, corridorWidth);
+            return horizontal
+                ? new Vector2(cellWidth * safeCorridorWidth,
+                    cellHeight * DoorThicknessRatio)
+                : new Vector2(cellWidth * DoorThicknessRatio,
+                    cellHeight * safeCorridorWidth);
+        }
+
+        private void CreateDoor(DoorBuildGroup group, int corridorWidth)
         {
             group.ConnectionIndices.Sort();
             string connections = string.Empty;
@@ -167,8 +192,11 @@ namespace ProceduralDungeon
 
             var doorObject = new GameObject($"Door_Room{group.Key.RoomId}_Connection{connections}");
             doorObject.transform.SetParent(doorRoot, false);
-            doorObject.transform.position = grid.GetCellCenterWorld(
+            Vector3 entranceWorld = grid.GetCellCenterWorld(
                 new Vector3Int(group.Key.EntranceCell.x, group.Key.EntranceCell.y, 0));
+            Vector3 corridorWorld = grid.GetCellCenterWorld(
+                new Vector3Int(group.FirstCorridorCell.x, group.FirstCorridorCell.y, 0));
+            doorObject.transform.position = (entranceWorld + corridorWorld) * 0.5f;
             doorObject.AddComponent<SpriteRenderer>();
             doorObject.AddComponent<BoxCollider2D>();
             DungeonDoor door = doorObject.AddComponent<DungeonDoor>();
@@ -176,12 +204,8 @@ namespace ProceduralDungeon
                 || group.Key.Direction == DoorwayDirection.Down;
             DungeonDoorOrientation orientation = horizontal
                 ? DungeonDoorOrientation.Horizontal : DungeonDoorOrientation.Vertical;
-            Vector3 cellSize = grid.cellSize;
-            Vector2 size = horizontal
-                ? new Vector2(Mathf.Abs(cellSize.x) * DoorLengthRatio,
-                    Mathf.Abs(cellSize.y) * DoorThicknessRatio)
-                : new Vector2(Mathf.Abs(cellSize.x) * DoorThicknessRatio,
-                    Mathf.Abs(cellSize.y) * DoorLengthRatio);
+            Vector2 size = CalculateDoorWorldSize(group.Key.Direction,
+                grid.cellSize, corridorWidth);
             door.Initialize(group.Key.RoomId, group.Key.EntranceCell, group.Key.Direction,
                 orientation, size, group.ConnectionIndices, runtimeSprite);
             doors.Add(door);
@@ -194,26 +218,37 @@ namespace ProceduralDungeon
             roomDoors.Add(door);
         }
 
-        private long ComputeLayoutSignature(IReadOnlyList<DoorwayData> sourceDoorways)
+        private long ComputeLayoutSignature(IReadOnlyList<DoorwayData> sourceDoorways,
+            int corridorWidth)
         {
             var sorted = new List<DoorwayData>(sourceDoorways);
             sorted.Sort(CompareDoorways);
             ulong hash = Offset;
             AddInt(ref hash, sorted.Count);
+            AddInt(ref hash, corridorWidth);
             for (int i = 0; i < sorted.Count; i++)
             {
                 DoorwayData doorway = sorted[i];
-                Vector3 position = grid.GetCellCenterWorld(
+                Vector3 entranceWorld = grid.GetCellCenterWorld(
                     new Vector3Int(doorway.EntranceCell.x, doorway.EntranceCell.y, 0));
+                Vector3 corridorWorld = grid.GetCellCenterWorld(new Vector3Int(
+                    doorway.FirstCorridorCell.x, doorway.FirstCorridorCell.y, 0));
+                Vector3 position = (entranceWorld + corridorWorld) * 0.5f;
+                Vector2 size = CalculateDoorWorldSize(doorway.OutwardDirection,
+                    grid.cellSize, corridorWidth);
                 bool horizontal = doorway.OutwardDirection == DoorwayDirection.Up
                     || doorway.OutwardDirection == DoorwayDirection.Down;
                 AddInt(ref hash, doorway.RoomId);
                 AddInt(ref hash, doorway.ConnectionIndex);
                 AddInt(ref hash, doorway.EntranceCell.x);
                 AddInt(ref hash, doorway.EntranceCell.y);
+                AddInt(ref hash, doorway.FirstCorridorCell.x);
+                AddInt(ref hash, doorway.FirstCorridorCell.y);
                 AddInt(ref hash, (int)doorway.OutwardDirection);
                 AddInt(ref hash, Mathf.RoundToInt(position.x * 10000f));
                 AddInt(ref hash, Mathf.RoundToInt(position.y * 10000f));
+                AddInt(ref hash, Mathf.RoundToInt(size.x * 10000f));
+                AddInt(ref hash, Mathf.RoundToInt(size.y * 10000f));
                 AddInt(ref hash, horizontal ? (int)DungeonDoorOrientation.Horizontal
                     : (int)DungeonDoorOrientation.Vertical);
             }
@@ -223,6 +258,7 @@ namespace ProceduralDungeon
         private void CacheComponents()
         {
             if (doorwayBuilder == null) doorwayBuilder = GetComponent<DungeonDoorwayBuilder>();
+            if (tilemapRenderer == null) tilemapRenderer = GetComponent<DungeonTilemapRenderer>();
             if (grid == null) grid = FindFirstObjectByType<Grid>();
         }
 
@@ -305,11 +341,13 @@ namespace ProceduralDungeon
         private sealed class DoorBuildGroup
         {
             public DoorKey Key { get; }
+            public Vector2Int FirstCorridorCell { get; }
             public List<int> ConnectionIndices { get; } = new List<int>();
 
-            public DoorBuildGroup(DoorKey key)
+            public DoorBuildGroup(DoorKey key, Vector2Int firstCorridorCell)
             {
                 Key = key;
+                FirstCorridorCell = firstCorridorCell;
             }
         }
     }

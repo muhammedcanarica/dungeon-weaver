@@ -35,6 +35,10 @@ namespace ProceduralDungeon
         public DoorwayDirection OutwardDirection => outwardDirection;
         public DungeonDoorOrientation Orientation => orientation;
         public Vector2 WorldSize => worldSize;
+        public float PassageSpan => orientation == DungeonDoorOrientation.Horizontal
+            ? worldSize.x : worldSize.y;
+        public Bounds ColliderBounds => new Bounds(transform.position,
+            new Vector3(worldSize.x, worldSize.y, 0.1f));
         public bool IsOpen => isOpen;
         public SpriteRenderer DoorRenderer => spriteRenderer;
         public BoxCollider2D DoorCollider => doorCollider;
@@ -56,12 +60,10 @@ namespace ProceduralDungeon
             doorCollider = GetComponent<BoxCollider2D>();
             spriteRenderer.sprite = sprite;
             spriteRenderer.sortingOrder = 20;
-            Vector2 localSize = orientation == DungeonDoorOrientation.Horizontal
-                ? worldSize : new Vector2(worldSize.y, worldSize.x);
-            transform.localScale = new Vector3(localSize.x, localSize.y, 1f);
-            transform.localRotation = orientation == DungeonDoorOrientation.Vertical
-                ? Quaternion.Euler(0f, 0f, 90f) : Quaternion.identity;
+            transform.localRotation = Quaternion.identity;
+            transform.localScale = new Vector3(worldSize.x, worldSize.y, 1f);
             doorCollider.size = Vector2.one;
+            doorCollider.offset = Vector2.zero;
             doorCollider.isTrigger = false;
             Open();
         }

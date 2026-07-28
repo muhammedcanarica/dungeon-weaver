@@ -7,6 +7,7 @@ namespace ProceduralDungeon
 {
     [RequireComponent(typeof(DungeonGenerator), typeof(DungeonRoomRoleAssigner))]
     [RequireComponent(typeof(DungeonRoomStateController), typeof(DungeonDoorRegistry))]
+    [RequireComponent(typeof(DungeonAreaTracker))]
     public sealed class DungeonRoomEncounterController : MonoBehaviour
     {
         [SerializeField] private Collider2D playerCollider;
@@ -18,11 +19,16 @@ namespace ProceduralDungeon
         private DungeonRoomRoleAssigner roleAssigner;
         private DungeonRoomStateController roomStateController;
         private DungeonDoorRegistry doorRegistry;
+        private DungeonAreaTracker areaTracker;
         private bool hasStates;
         private bool subscribed;
+        private int pendingActivationRoomId = DungeonRoomStateController.InvalidId;
 
         public int TotalRoomCount => states.Count;
         public int PendingDoorCount => pendingDoors.Count;
+        public int PendingActivationRoomId => pendingActivationRoomId;
+        public bool HasPendingActivation => pendingActivationRoomId
+            != DungeonRoomStateController.InvalidId;
         public bool HasEncounterStates => hasStates;
         public int ActiveLockedRoomId
         {
@@ -53,6 +59,7 @@ namespace ProceduralDungeon
         {
             Keyboard keyboard = Keyboard.current;
             if (keyboard != null && keyboard.cKey.wasPressedThisFrame) TryDebugClearActiveRoom();
+            ProcessPendingActivation();
             ProcessPendingClosures();
         }
 
@@ -93,6 +100,7 @@ namespace ProceduralDungeon
         {
             states.Clear();
             pendingDoors.Clear();
+            pendingActivationRoomId = DungeonRoomStateController.InvalidId;
             hasStates = false;
         }
 
@@ -121,9 +129,35 @@ namespace ProceduralDungeon
         {
             if (!states.TryGetValue(roomId, out DungeonRoomEncounterRuntimeState state)
                 || state.State != RoomEncounterState.Locked || doorRegistry == null) return false;
+            if (pendingActivationRoomId == roomId)
+                pendingActivationRoomId = DungeonRoomStateController.InvalidId;
             SetEncounterState(state, RoomEncounterState.Cleared);
             RemovePendingDoors(roomId);
             doorRegistry.OpenRoomDoors(roomId);
+            return true;
+        }
+
+        public bool ProcessPendingActivation()
+        {
+            int roomId = pendingActivationRoomId;
+            if (roomId == DungeonRoomStateController.InvalidId) return false;
+            if (!states.TryGetValue(roomId, out DungeonRoomEncounterRuntimeState state)
+                || state.State != RoomEncounterState.Inactive)
+            {
+                pendingActivationRoomId = DungeonRoomStateController.InvalidId;
+                return false;
+            }
+
+            if (roomStateController == null || !roomStateController.IsRoomActive(roomId)
+                || roomStateController.CurrentActiveRoomId != roomId)
+            {
+                pendingActivationRoomId = DungeonRoomStateController.InvalidId;
+                return false;
+            }
+
+            if (!IsPlayerSafelyInsideRoom(roomId) || !CloseRoomDoorsSafely(roomId)) return false;
+            pendingActivationRoomId = DungeonRoomStateController.InvalidId;
+            SetEncounterState(state, RoomEncounterState.Locked);
             return true;
         }
 
@@ -139,7 +173,6 @@ namespace ProceduralDungeon
                     pendingDoors.RemoveAt(i);
                     continue;
                 }
-                if (roomStateController.CurrentActiveRoomId != door.RoomId) continue;
                 if (WouldOverlapPlayer(door)) continue;
                 door.Close();
                 pendingDoors.RemoveAt(i);
@@ -148,40 +181,85 @@ namespace ProceduralDungeon
 
         private void HandleRoomStateChanged(DungeonRoomStateChange change)
         {
-            if (!hasStates || change.CurrentState != RoomExplorationState.Active
-                || !states.TryGetValue(change.RoomId, out DungeonRoomEncounterRuntimeState encounter)
-                || encounter.State != RoomEncounterState.Inactive) return;
+            if (!hasStates || !states.TryGetValue(change.RoomId,
+                out DungeonRoomEncounterRuntimeState encounter)) return;
             if (change.RoomId == roleAssigner.StartRoomId)
             {
-                SetEncounterState(encounter, RoomEncounterState.Cleared);
+                if (pendingActivationRoomId == change.RoomId)
+                    pendingActivationRoomId = DungeonRoomStateController.InvalidId;
+                if (encounter.State != RoomEncounterState.Cleared)
+                    SetEncounterState(encounter, RoomEncounterState.Cleared);
                 return;
             }
 
-            CloseRoomDoorsSafely(change.RoomId);
-            SetEncounterState(encounter, RoomEncounterState.Locked);
+            if (change.CurrentState == RoomExplorationState.Active
+                && encounter.State == RoomEncounterState.Inactive)
+            {
+                pendingActivationRoomId = change.RoomId;
+                ProcessPendingActivation();
+                return;
+            }
+
+            if (pendingActivationRoomId == change.RoomId)
+                pendingActivationRoomId = DungeonRoomStateController.InvalidId;
+            if (encounter.State == RoomEncounterState.Locked
+                && change.CurrentState != RoomExplorationState.Active)
+                CancelLockedEncounter(encounter);
         }
 
-        private void CloseRoomDoorsSafely(int roomId)
+        private bool CloseRoomDoorsSafely(int roomId)
         {
-            if (!doorRegistry.TryGetDoorsForRoom(roomId, out IReadOnlyList<DungeonDoor> roomDoors)) return;
+            if (!doorRegistry.TryGetDoorsForRoom(roomId,
+                out IReadOnlyList<DungeonDoor> roomDoors)) return false;
+            bool allClosed = true;
             for (int i = 0; i < roomDoors.Count; i++)
             {
                 DungeonDoor door = roomDoors[i];
+                if (door == null) continue;
                 if (WouldOverlapPlayer(door))
                 {
                     if (!pendingDoors.Contains(door)) pendingDoors.Add(door);
+                    allClosed = false;
                 }
                 else door.Close();
             }
+            return allClosed;
         }
 
         private bool WouldOverlapPlayer(DungeonDoor door)
         {
             if (playerCollider == null || door == null) return false;
-            Bounds playerBounds = playerCollider.bounds;
-            var doorBounds = new Bounds(door.transform.position,
-                new Vector3(door.WorldSize.x, door.WorldSize.y, 0.1f));
-            return playerBounds.Intersects(doorBounds);
+            return playerCollider.bounds.Intersects(door.ColliderBounds);
+        }
+
+        private bool IsPlayerSafelyInsideRoom(int roomId)
+        {
+            if (areaTracker == null || areaTracker.CurrentAreaType != DungeonAreaType.Room
+                || areaTracker.CurrentRoomId != roomId || playerCollider == null) return false;
+            RoomData room = FindRoom(roomId);
+            Vector2Int cell = areaTracker.CurrentCell;
+            if (room == null || cell.x <= room.Bounds.xMin || cell.x >= room.Bounds.xMax - 1
+                || cell.y <= room.Bounds.yMin || cell.y >= room.Bounds.yMax - 1) return false;
+            if (!doorRegistry.TryGetDoorsForRoom(roomId,
+                out IReadOnlyList<DungeonDoor> roomDoors)) return false;
+            for (int i = 0; i < roomDoors.Count; i++)
+                if (WouldOverlapPlayer(roomDoors[i])) return false;
+            return true;
+        }
+
+        private void CancelLockedEncounter(DungeonRoomEncounterRuntimeState state)
+        {
+            RemovePendingDoors(state.RoomId);
+            doorRegistry.OpenRoomDoors(state.RoomId);
+            SetEncounterState(state, RoomEncounterState.Inactive);
+        }
+
+        private RoomData FindRoom(int roomId)
+        {
+            if (generator == null || generator.Rooms == null) return null;
+            for (int i = 0; i < generator.Rooms.Count; i++)
+                if (generator.Rooms[i].RoomId == roomId) return generator.Rooms[i];
+            return null;
         }
 
         private void RemovePendingDoors(int roomId)
@@ -204,6 +282,7 @@ namespace ProceduralDungeon
             if (roleAssigner == null) roleAssigner = GetComponent<DungeonRoomRoleAssigner>();
             if (roomStateController == null) roomStateController = GetComponent<DungeonRoomStateController>();
             if (doorRegistry == null) doorRegistry = GetComponent<DungeonDoorRegistry>();
+            if (areaTracker == null) areaTracker = GetComponent<DungeonAreaTracker>();
             if (playerCollider == null)
             {
                 TopDownPlayerController player = FindFirstObjectByType<TopDownPlayerController>();

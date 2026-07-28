@@ -33,6 +33,7 @@ namespace ProceduralDungeon
 
         public int FloorCellCount => floorCellCount;
         public int WallCellCount => wallCellCount;
+        public int CorridorWidth => corridorWidth;
         public Tilemap FloorTilemap => floorTilemap;
         public Tilemap WallTilemap => wallTilemap;
         public bool IsTilemapCurrent

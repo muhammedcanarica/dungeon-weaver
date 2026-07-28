@@ -305,6 +305,11 @@ namespace ProceduralDungeon
         {
             if (change.CurrentState == RoomEncounterState.Locked) ActivateRoom(change.RoomId);
             else if (change.CurrentState == RoomEncounterState.Cleared) ClearRoomEnemies(change.RoomId);
+            else if (change.CurrentState == RoomEncounterState.Inactive)
+            {
+                ClearRoomEnemies(change.RoomId);
+                spawnedRoomIds.Remove(change.RoomId);
+            }
         }
 
         private void HandleEnemyDied(DungeonEnemy enemy)
