@@ -34,6 +34,8 @@ namespace ProceduralDungeon.Tests
         private DungeonRuntimeController runtime;
         private TopDownPlayerController playerController;
         private TopDownPlayerAttack playerAttack;
+        private PrototypePlayerHealth playerHealth;
+        private DungeonPrototypeDeathRespawn deathRespawn;
         private Collider2D playerCollider;
 
         [SetUp]
@@ -67,6 +69,8 @@ namespace ProceduralDungeon.Tests
             ((CircleCollider2D)playerCollider).radius = 0.38f;
             playerController = playerObject.AddComponent<TopDownPlayerController>();
             playerAttack = playerObject.AddComponent<TopDownPlayerAttack>();
+            playerHealth = playerObject.AddComponent<PrototypePlayerHealth>();
+            deathRespawn = playerObject.AddComponent<DungeonPrototypeDeathRespawn>();
 
             DungeonPlayerSpawner spawner = dungeonObject.AddComponent<DungeonPlayerSpawner>();
             spawner.SetTrackedActor(playerObject.transform);
@@ -607,6 +611,95 @@ namespace ProceduralDungeon.Tests
             Assert.That(eventSystem.currentSelectedGameObject, Is.SameAs(inputObject));
             Assert.That(DungeonRuntimeInputFocus.IsInputField(inputObject), Is.True);
             Assert.That(playerAttack.TryAttackAtTimeForSelection(20f, inputObject), Is.False);
+        }
+
+        [Test]
+        public void PlayerHealth_RejectsInvalidAndInvulnerableDamageAndRaisesDeathOnce()
+        {
+            int damageEvents = 0;
+            int deathEvents = 0;
+            playerHealth.Damaged += _ => damageEvents++;
+            playerHealth.Died += () => deathEvents++;
+
+            Assert.That(playerHealth.MaxHealth, Is.EqualTo(5));
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(5));
+            Assert.That(playerHealth.TakeDamage(0), Is.False);
+            Assert.That(playerHealth.TakeDamage(-1), Is.False);
+            Assert.That(playerHealth.TakeDamage(1), Is.True);
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(4));
+            Assert.That(playerHealth.IsInvulnerable, Is.True);
+            Assert.That(playerHealth.TakeDamage(1), Is.False);
+
+            playerHealth.AdvanceInvulnerability(playerHealth.InvulnerabilityDuration);
+            Assert.That(playerHealth.IsInvulnerable, Is.False);
+            Assert.That(playerHealth.TakeDamage(99), Is.True);
+            Assert.That(playerHealth.CurrentHealth, Is.Zero);
+            Assert.That(playerHealth.IsDead, Is.True);
+            Assert.That(playerHealth.TakeDamage(1), Is.False);
+            Assert.That(damageEvents, Is.EqualTo(2));
+            Assert.That(deathEvents, Is.EqualTo(1));
+
+            playerHealth.ResetHealth();
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(5));
+            Assert.That(playerHealth.IsDead, Is.False);
+            Assert.That(playerHealth.IsInvulnerable, Is.False);
+        }
+
+        [Test]
+        public void EnemyContactDamage_RequiresLockedCurrentRoomAndHonorsPlayerIFrames()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            MoveThroughToEntrance(exit, entry);
+            CompleteRoomEntry(entry);
+            Assert.That(enemyRegistry.TryGetLiveEnemiesForRoom(entry.RoomId,
+                out IReadOnlyList<DungeonEnemy> liveEnemies), Is.True);
+
+            DungeonEnemy enemy = liveEnemies[0];
+            DungeonEnemyContactDamage contactDamage = enemy.GetComponent<DungeonEnemyContactDamage>();
+            Assert.That(contactDamage, Is.Not.Null);
+            Assert.That(contactDamage.ContactDamage, Is.EqualTo(1));
+            MoveToCell(RoomCenter(FindRoom(entry.RoomId)));
+            playerHealth.ResetHealth();
+
+            Assert.That(contactDamage.TryDealContactDamage(playerHealth), Is.True);
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(4));
+            Assert.That(contactDamage.TryDealContactDamage(playerHealth), Is.False);
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(4));
+            playerHealth.AdvanceInvulnerability(playerHealth.InvulnerabilityDuration);
+            Assert.That(contactDamage.TryDealContactDamage(playerHealth), Is.True);
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void DeathRestart_RegeneratesTheSameSeedAndRestoresPlayerGameplay()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            long doorwaySignature = doorways.DoorwaySignature;
+            long doorLayoutSignature = doorRegistry.LayoutSignature;
+            long enemyPlanSignature = enemyRegistry.PlanSignature;
+            playerObject.GetComponent<Rigidbody2D>().linearVelocity = new Vector2(2f, 3f);
+            int deathEvents = 0;
+            playerHealth.Died += () => deathEvents++;
+
+            Assert.That(playerHealth.TakeDamage(playerHealth.MaxHealth), Is.True);
+            Assert.That(deathEvents, Is.EqualTo(1));
+            Assert.That(playerController.enabled, Is.False);
+            Assert.That(playerAttack.enabled, Is.False);
+            Assert.That(playerObject.GetComponent<Rigidbody2D>().linearVelocity, Is.EqualTo(Vector2.zero));
+            Assert.That(deathRespawn.IsRestartPending, Is.True);
+
+            Assert.That(deathRespawn.TryRestartRun(), Is.True);
+            Assert.That(runtime.LastGeneratedSeed, Is.EqualTo(12345));
+            Assert.That(doorways.DoorwaySignature, Is.EqualTo(doorwaySignature));
+            Assert.That(doorRegistry.LayoutSignature, Is.EqualTo(doorLayoutSignature));
+            Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(enemyPlanSignature));
+            Assert.That(areaTracker.CurrentRoomId, Is.EqualTo(roles.StartRoomId));
+            Assert.That(playerHealth.CurrentHealth, Is.EqualTo(playerHealth.MaxHealth));
+            Assert.That(playerHealth.IsDead, Is.False);
+            Assert.That(playerController.enabled, Is.True);
+            Assert.That(playerAttack.enabled, Is.True);
+            Assert.That(deathRespawn.IsRestartPending, Is.False);
         }
 
         [Test]

@@ -133,6 +133,9 @@ GameObject:
   - component: {fileID: 133902451}
   - component: {fileID: 133902450}
   - component: {fileID: 133902455}
+  - component: {fileID: 133902456}
+  - component: {fileID: 133902457}
+  - component: {fileID: 133902458}
   m_Layer: 0
   m_Name: PrototypePlayer
   m_TagString: Untagged
@@ -306,6 +309,47 @@ MonoBehaviour:
   attackRadius: 1.5
   cooldown: 0.4
   feedbackDuration: 0.12
+--- !u!114 &133902456
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 133902449}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a36d5112b1c641c3a2b5a4d9ee741c01, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: DungeonWeaver.Samples.Prototype::ProceduralDungeon.PrototypePlayerHealth
+  maxHealth: 5
+  invulnerabilityDuration: 0.75
+--- !u!114 &133902457
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 133902449}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b36d5112b1c641c3a2b5a4d9ee741c02, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: DungeonWeaver.Samples.Prototype::ProceduralDungeon.PrototypePlayerDamageFeedback
+  feedbackDuration: 0.12
+  damageColor: {r: 1, g: 0.42, b: 0.42, a: 1}
+--- !u!114 &133902458
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 133902449}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d36d5112b1c641c3a2b5a4d9ee741c04, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: DungeonWeaver.Samples.Prototype::ProceduralDungeon.DungeonPrototypeDeathRespawn
+  respawnDelay: 1
 --- !u!1 &178436290
 GameObject:
   m_ObjectHideFlags: 0
@@ -5723,6 +5767,7 @@ MonoBehaviour:
   safeCellsPerEnemy: 10
   enemyMaxHealth: 3
   enemyMoveSpeed: 2.25
+  contactDamage: 1
 --- !u!114 &2100000001
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5739,6 +5784,7 @@ MonoBehaviour:
   enemyRegistry: {fileID: 1074544763}
   playerController: {fileID: 133902450}
   playerAttack: {fileID: 133902455}
+  deathRespawn: {fileID: 133902458}
 --- !u!114 &2100000002
 MonoBehaviour:
   m_ObjectHideFlags: 0

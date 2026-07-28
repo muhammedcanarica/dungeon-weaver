@@ -9,6 +9,7 @@ namespace ProceduralDungeon
         [SerializeField] private DungeonEnemyEncounterRegistry enemyRegistry;
         [SerializeField] private TopDownPlayerController playerController;
         [SerializeField] private TopDownPlayerAttack playerAttack;
+        [SerializeField] private DungeonPrototypeDeathRespawn deathRespawn;
 
         private DungeonPlayerSpawner actorSpawner;
         private bool subscribed;
@@ -52,6 +53,7 @@ namespace ProceduralDungeon
                     Debug.LogError("[DungeonPrototypeRuntimeAdapter] Enemy plan generation failed.", this);
             }
             SetPrototypeGameplay(true);
+            deathRespawn?.Initialize();
         }
 
         private void SetPrototypeGameplay(bool enabledState)
@@ -69,6 +71,7 @@ namespace ProceduralDungeon
             if (actor == null) return;
             if (playerController == null) playerController = actor.GetComponent<TopDownPlayerController>();
             if (playerAttack == null) playerAttack = actor.GetComponent<TopDownPlayerAttack>();
+            if (deathRespawn == null) deathRespawn = actor.GetComponent<DungeonPrototypeDeathRespawn>();
         }
 
         private void Subscribe()

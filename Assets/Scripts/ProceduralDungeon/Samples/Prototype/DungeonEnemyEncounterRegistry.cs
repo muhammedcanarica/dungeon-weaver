@@ -23,6 +23,7 @@ namespace ProceduralDungeon
         [SerializeField, Min(1)] private int safeCellsPerEnemy = 10;
         [SerializeField, Min(1)] private int enemyMaxHealth = 3;
         [SerializeField, Min(0f)] private float enemyMoveSpeed = 2.25f;
+        [SerializeField, Min(1)] private int contactDamage = 1;
 
         private readonly Dictionary<int, List<DungeonEnemySpawnPlan>> plansByRoom =
             new Dictionary<int, List<DungeonEnemySpawnPlan>>();
@@ -62,6 +63,7 @@ namespace ProceduralDungeon
         public int MinimumSpawnDistance => Mathf.Max(0, minimumSpawnDistance);
         public int DoorwaySafeDistance => Mathf.Max(0, doorwaySafeDistance);
         public int SafeCellsPerEnemy => Mathf.Max(1, safeCellsPerEnemy);
+        public int ContactDamage => Mathf.Max(1, contactDamage);
 
         public void SetTrackedActor(Transform actorTransform)
         {
@@ -183,6 +185,8 @@ namespace ProceduralDungeon
                 DungeonEnemy enemy = enemyObject.AddComponent<DungeonEnemy>();
                 enemy.Initialize(plan, room.Bounds, trackedActor, areaTracker, encounterController,
                     runtimeSprite, enemyMoveSpeed);
+                DungeonEnemyContactDamage damage = enemyObject.AddComponent<DungeonEnemyContactDamage>();
+                damage.Initialize(enemy, areaTracker, encounterController, ContactDamage);
                 enemy.Died += HandleEnemyDied;
                 enemies.Add(enemy);
             }
