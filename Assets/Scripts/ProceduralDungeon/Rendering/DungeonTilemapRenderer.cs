@@ -2,9 +2,6 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 
 namespace ProceduralDungeon
 {
@@ -13,6 +10,7 @@ namespace ProceduralDungeon
     {
         private const ulong Offset = 14695981039346656037UL;
         private const ulong Prime = 1099511628211UL;
+        private static Func<TileBase, string> tileIdentityResolver;
         private static readonly Vector2Int[] Neighbors = {
             Vector2Int.left, Vector2Int.right, Vector2Int.up, Vector2Int.down,
             new Vector2Int(-1,1), new Vector2Int(1,1), new Vector2Int(-1,-1), new Vector2Int(1,-1)
@@ -50,6 +48,11 @@ namespace ProceduralDungeon
                     && builtRenderSignature == Signature(generator.Rooms, graph.Connections, corridors.Corridors, corridorWidth, wallThickness, floorId, wallId)
                     && Count(floorTilemap) == floorCellCount && Count(wallTilemap) == wallCellCount;
             }
+        }
+
+        public static void SetTileIdentityResolver(Func<TileBase, string> resolver)
+        {
+            tileIdentityResolver = resolver;
         }
 
         [ContextMenu("Render Dungeon Tilemap")]
@@ -121,13 +124,7 @@ namespace ProceduralDungeon
             for(int i=0;i<corridors.Count;i++){CorridorData c=corridors[i];AddInt(ref hash,c.RoomAId);AddInt(ref hash,c.RoomBId);AddByte(ref hash,c.IsPrimaryConnection?(byte)1:(byte)0);AddByte(ref hash,c.UsedFallbackPathfinding?(byte)1:(byte)0);AddInt(ref hash,c.CellCount);for(int p=0;p<c.PathCells.Count;p++){AddInt(ref hash,c.PathCells[p].x);AddInt(ref hash,c.PathCells[p].y);}}
             AddInt(ref hash,width);AddInt(ref hash,thickness);AddString(ref hash,floorId);AddString(ref hash,wallId);return unchecked((long)hash);
         }
-        private static string TileId(TileBase tile,string fallback){if(tile==null)return string.Empty;
-#if UNITY_EDITOR
-            string guid=AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(tile));return string.IsNullOrEmpty(guid)?tile.name:guid;
-#else
-            return string.IsNullOrEmpty(fallback)?tile.name:fallback;
-#endif
-        }
+        private static string TileId(TileBase tile,string fallback){if(tile==null)return string.Empty;string resolved=tileIdentityResolver?.Invoke(tile);if(!string.IsNullOrEmpty(resolved))return resolved;return string.IsNullOrEmpty(fallback)?tile.name:fallback;}
         private static void AddString(ref ulong h,string v){if(v==null){AddInt(ref h,-1);return;}AddInt(ref h,v.Length);for(int i=0;i<v.Length;i++)AddInt(ref h,v[i]);}
         private static void AddInt(ref ulong h,int v){uint b=unchecked((uint)v);for(int s=0;s<32;s+=8)AddByte(ref h,(byte)(b>>s));}
         private static void AddLong(ref ulong h,long v){ulong b=unchecked((ulong)v);for(int s=0;s<64;s+=8)AddByte(ref h,(byte)(b>>s));}

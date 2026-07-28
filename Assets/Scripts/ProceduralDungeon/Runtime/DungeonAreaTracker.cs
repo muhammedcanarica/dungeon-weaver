@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace ProceduralDungeon
 {
@@ -46,7 +47,8 @@ namespace ProceduralDungeon
         private const ulong Prime = 1099511628211UL;
 
         [SerializeField] private Grid grid;
-        [SerializeField] private Transform player;
+        [FormerlySerializedAs("player")]
+        [SerializeField] private Transform trackedActor;
 
         private readonly Dictionary<Vector2Int, int> roomByCell = new Dictionary<Vector2Int, int>();
         private readonly Dictionary<Vector2Int, List<CorridorCellInfo>> corridorsByCell =
@@ -85,6 +87,8 @@ namespace ProceduralDungeon
         public int CorridorOnlyCellCount => corridorsByCell.Count - overlapCellCount;
         public int OverlapCellCount => overlapCellCount;
         public int TotalLookupCellCount => roomByCell.Count + corridorsByCell.Count - overlapCellCount;
+        public Transform TrackedActor => trackedActor;
+        public bool HasTrackedActor => trackedActor != null;
 
         public event Action<DungeonAreaTransition> RoomEntered;
         public event Action<DungeonAreaTransition> RoomExited;
@@ -97,16 +101,21 @@ namespace ProceduralDungeon
 
         private void LateUpdate()
         {
-            if (hasLookup && player != null) RefreshPlayerArea();
+            if (hasLookup && trackedActor != null) RefreshTrackedActorArea();
+        }
+
+        public void SetTrackedActor(Transform actorTransform)
+        {
+            trackedActor = actorTransform;
         }
 
         public bool BuildLookup()
         {
             ClearTracking();
             CacheComponents();
-            if (!HasCurrentSources() || grid == null || player == null)
+            if (!HasCurrentSources() || grid == null || trackedActor == null)
             {
-                Debug.LogError("[DungeonAreaTracker] Lookup build rejected because source data or scene references are invalid.", this);
+                Debug.LogError("[DungeonAreaTracker] Lookup build rejected because source data, Grid, or tracked actor is invalid.", this);
                 return false;
             }
 
@@ -195,10 +204,10 @@ namespace ProceduralDungeon
             lastTransitionConnectionIndex = InvalidId;
         }
 
-        public bool RefreshPlayerArea(bool notifyEvents = true)
+        public bool RefreshTrackedActorArea(bool notifyEvents = true)
         {
-            if (!hasLookup || grid == null || player == null) return false;
-            Vector3Int cell = grid.WorldToCell(player.position);
+            if (!hasLookup || grid == null || trackedActor == null) return false;
+            Vector3Int cell = grid.WorldToCell(trackedActor.position);
             return RefreshCell(new Vector2Int(cell.x, cell.y), notifyEvents);
         }
 
@@ -266,6 +275,11 @@ namespace ProceduralDungeon
             AreaChanged?.Invoke(transition);
             if (nextArea == DungeonAreaType.Room && nextRoom != oldRoom) RoomEntered?.Invoke(transition);
             return true;
+        }
+
+        public bool RefreshPlayerArea(bool notifyEvents = true)
+        {
+            return RefreshTrackedActorArea(notifyEvents);
         }
 
         private DoorwayData FindTransitionDoorway(DungeonAreaType oldArea, int oldRoom, Vector2Int oldCell,

@@ -35,7 +35,7 @@ namespace ProceduralDungeon
         private DungeonRoomEncounterController encounterController;
         private DungeonTilemapRenderer tilemapRenderer;
         private DungeonAreaTracker areaTracker;
-        private Transform player;
+        [SerializeField] private Transform trackedActor;
         private Grid grid;
         private Transform enemyRoot;
         private Sprite runtimeSprite;
@@ -62,6 +62,11 @@ namespace ProceduralDungeon
         public int MinimumSpawnDistance => Mathf.Max(0, minimumSpawnDistance);
         public int DoorwaySafeDistance => Mathf.Max(0, doorwaySafeDistance);
         public int SafeCellsPerEnemy => Mathf.Max(1, safeCellsPerEnemy);
+
+        public void SetTrackedActor(Transform actorTransform)
+        {
+            trackedActor = actorTransform;
+        }
 
         private void OnEnable()
         {
@@ -176,7 +181,7 @@ namespace ProceduralDungeon
                 enemyObject.AddComponent<Rigidbody2D>();
                 enemyObject.AddComponent<CircleCollider2D>();
                 DungeonEnemy enemy = enemyObject.AddComponent<DungeonEnemy>();
-                enemy.Initialize(plan, room.Bounds, player, areaTracker, encounterController,
+                enemy.Initialize(plan, room.Bounds, trackedActor, areaTracker, encounterController,
                     runtimeSprite, enemyMoveSpeed);
                 enemy.Died += HandleEnemyDied;
                 enemies.Add(enemy);
@@ -374,7 +379,8 @@ namespace ProceduralDungeon
                 && encounterController != null && encounterController.HasEncounterStates
                 && tilemapRenderer != null && tilemapRenderer.IsTilemapCurrent
                 && tilemapRenderer.FloorTilemap != null && tilemapRenderer.WallTilemap != null
-                && areaTracker != null && areaTracker.IsLookupCurrent && player != null && grid != null;
+                && areaTracker != null && areaTracker.IsLookupCurrent
+                && trackedActor != null && grid != null;
         }
 
         private void CacheComponents()
@@ -388,11 +394,6 @@ namespace ProceduralDungeon
             if (areaTracker == null) areaTracker = GetComponent<DungeonAreaTracker>();
             if (tilemapRenderer != null && tilemapRenderer.FloorTilemap != null)
                 grid = tilemapRenderer.FloorTilemap.GetComponentInParent<Grid>();
-            if (player == null)
-            {
-                TopDownPlayerController controller = FindFirstObjectByType<TopDownPlayerController>();
-                if (controller != null) player = controller.transform;
-            }
         }
 
         private void Subscribe()

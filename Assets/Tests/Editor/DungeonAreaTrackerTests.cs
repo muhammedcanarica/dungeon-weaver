@@ -53,10 +53,11 @@ namespace ProceduralDungeon.Tests
 
             playerObject = new GameObject("Area Tracker Test Player");
             playerObject.AddComponent<Rigidbody2D>().gravityScale = 0f;
+            playerObject.AddComponent<CircleCollider2D>();
             playerController = playerObject.AddComponent<TopDownPlayerController>();
 
             DungeonPlayerSpawner spawner = dungeonObject.AddComponent<DungeonPlayerSpawner>();
-            SetField(spawner, "prototypePlayer", playerObject.transform);
+            spawner.SetTrackedActor(playerObject.transform);
             SetField(spawner, "floorTilemap", floorTilemap);
 
             cameraObject = new GameObject("Area Tracker Test Camera");
@@ -68,11 +69,12 @@ namespace ProceduralDungeon.Tests
 
             tracker = dungeonObject.AddComponent<DungeonAreaTracker>();
             SetField(tracker, "grid", grid);
-            SetField(tracker, "player", playerObject.transform);
+            tracker.SetTrackedActor(playerObject.transform);
 
             runtime = dungeonObject.AddComponent<DungeonRuntimeController>();
-            SetField(runtime, "playerController", playerController);
             SetField(runtime, "cameraFollow", cameraFollow);
+            dungeonObject.AddComponent<DungeonEnemyEncounterRegistry>();
+            dungeonObject.AddComponent<DungeonPrototypeRuntimeAdapter>().Initialize();
         }
 
         [TearDown]

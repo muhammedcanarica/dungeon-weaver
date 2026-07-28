@@ -4985,6 +4985,8 @@ GameObject:
   - component: {fileID: 1074544762}
   - component: {fileID: 1074544761}
   - component: {fileID: 1074544763}
+  - component: {fileID: 2100000001}
+  - component: {fileID: 2100000002}
   m_Layer: 0
   m_Name: DungeonGenerator
   m_TagString: Untagged
@@ -5721,6 +5723,35 @@ MonoBehaviour:
   safeCellsPerEnemy: 10
   enemyMaxHealth: 3
   enemyMoveSpeed: 2.25
+--- !u!114 &2100000001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1074544748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3b42da2a40b773b4a84073e226216b11, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: DungeonWeaver.Samples.Prototype::ProceduralDungeon.DungeonPrototypeRuntimeAdapter
+  runtimeController: {fileID: 1074544757}
+  enemyRegistry: {fileID: 1074544763}
+  playerController: {fileID: 133902450}
+  playerAttack: {fileID: 133902455}
+--- !u!114 &2100000002
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1074544748}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8edd614083c38734f8e3ddf98b631fbb, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: DungeonWeaver.Samples.Prototype::ProceduralDungeon.DungeonEncounterDebugInput
+  encounterController: {fileID: 1074544761}
 --- !u!1 &1238119777
 GameObject:
   m_ObjectHideFlags: 0

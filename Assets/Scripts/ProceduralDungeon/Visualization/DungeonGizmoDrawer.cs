@@ -1,10 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
-
 namespace ProceduralDungeon
 {
     [RequireComponent(typeof(DungeonGenerator))]
@@ -73,16 +69,6 @@ namespace ProceduralDungeon
                 Gizmos.color = CenterColor;
                 Gizmos.DrawSphere(localCenter, CenterMarkerRadius);
 
-#if UNITY_EDITOR
-                Vector3 worldLabelPosition = transform.TransformPoint(localCenter);
-                string suffix = string.Empty;
-                if (roles != null && roles.IsRoleDataCurrent)
-                {
-                    if (room.RoomId == roles.StartRoomId) suffix = " START";
-                    else if (room.RoomId == roles.BossRoomId) suffix = " BOSS";
-                }
-                Handles.Label(worldLabelPosition, $"Room {room.RoomId}{suffix}");
-#endif
             }
         }
 

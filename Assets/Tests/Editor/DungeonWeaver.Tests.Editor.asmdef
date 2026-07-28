@@ -1,0 +1,24 @@
+{
+    "name": "DungeonWeaver.Tests.Editor",
+    "rootNamespace": "ProceduralDungeon.Tests",
+    "references": [
+        "DungeonWeaver.Core",
+        "DungeonWeaver.Samples.Prototype",
+        "Unity.InputSystem",
+        "Unity.ugui"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

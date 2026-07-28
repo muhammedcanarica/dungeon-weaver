@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
 namespace ProceduralDungeon
 {
@@ -10,7 +10,8 @@ namespace ProceduralDungeon
     [RequireComponent(typeof(DungeonAreaTracker))]
     public sealed class DungeonRoomEncounterController : MonoBehaviour
     {
-        [SerializeField] private Collider2D playerCollider;
+        [FormerlySerializedAs("playerCollider")]
+        [SerializeField] private Collider2D trackedActorCollider;
 
         private readonly Dictionary<int, DungeonRoomEncounterRuntimeState> states =
             new Dictionary<int, DungeonRoomEncounterRuntimeState>();
@@ -30,6 +31,9 @@ namespace ProceduralDungeon
         public bool HasPendingActivation => pendingActivationRoomId
             != DungeonRoomStateController.InvalidId;
         public bool HasEncounterStates => hasStates;
+        public Collider2D TrackedActorCollider => trackedActorCollider;
+        public bool HasTrackedActor => areaTracker != null && areaTracker.HasTrackedActor
+            && trackedActorCollider != null;
         public int ActiveLockedRoomId
         {
             get
@@ -57,10 +61,32 @@ namespace ProceduralDungeon
 
         private void Update()
         {
-            Keyboard keyboard = Keyboard.current;
-            if (keyboard != null && keyboard.cKey.wasPressedThisFrame) TryDebugClearActiveRoom();
             ProcessPendingActivation();
             ProcessPendingClosures();
+        }
+
+        public void SetTrackedActor(Transform actorTransform, Collider2D actorCollider)
+        {
+            CacheComponents();
+            trackedActorCollider = actorCollider;
+            areaTracker?.SetTrackedActor(actorTransform);
+        }
+
+        public bool ValidateTrackedActor(out string error)
+        {
+            CacheComponents();
+            if (areaTracker == null || !areaTracker.HasTrackedActor)
+            {
+                error = "Tracked actor Transform is missing.";
+                return false;
+            }
+            if (trackedActorCollider == null)
+            {
+                error = "Tracked actor Collider2D is missing.";
+                return false;
+            }
+            error = string.Empty;
+            return true;
         }
 
         public bool InitializeStates()
@@ -68,12 +94,14 @@ namespace ProceduralDungeon
             ClearStates();
             CacheComponents();
             Subscribe();
+            bool actorValid = ValidateTrackedActor(out string actorError);
             if (generator == null || roleAssigner == null || roomStateController == null
                 || doorRegistry == null || !roleAssigner.IsRoleDataCurrent
                 || !roomStateController.HasRuntimeStates || !doorRegistry.HasBuiltDoors
-                || generator.Rooms == null || generator.Rooms.Count == 0)
+                || generator.Rooms == null || generator.Rooms.Count == 0
+                || !actorValid)
             {
-                Debug.LogError("[DungeonRoomEncounterController] Initialization rejected because source data is invalid.", this);
+                Debug.LogError($"[DungeonRoomEncounterController] Initialization rejected because source data or actor references are invalid. {actorError}", this);
                 return false;
             }
 
@@ -109,20 +137,21 @@ namespace ProceduralDungeon
             return states.TryGetValue(roomId, out state);
         }
 
-        public bool TryDebugClearActiveRoom()
+        public bool TryClearActiveRoom()
         {
-            if (DungeonRuntimeInputFocus.IsInputFieldFocused()) return false;
             int roomId = roomStateController != null
                 ? roomStateController.CurrentActiveRoomId : DungeonRoomStateController.InvalidId;
             return TryClearRoom(roomId);
         }
 
+        public bool TryDebugClearActiveRoom()
+        {
+            return TryClearActiveRoom();
+        }
+
         public bool TryDebugClearActiveRoomForSelection(GameObject selectedObject)
         {
-            if (DungeonRuntimeInputFocus.IsInputField(selectedObject)) return false;
-            int roomId = roomStateController != null
-                ? roomStateController.CurrentActiveRoomId : DungeonRoomStateController.InvalidId;
-            return TryClearRoom(roomId);
+            return TryClearActiveRoom();
         }
 
         public bool TryClearRoom(int roomId)
@@ -155,7 +184,7 @@ namespace ProceduralDungeon
                 return false;
             }
 
-            if (!IsPlayerSafelyInsideRoom(roomId) || !CloseRoomDoorsSafely(roomId)) return false;
+            if (!IsTrackedActorSafelyInsideRoom(roomId) || !CloseRoomDoorsSafely(roomId)) return false;
             pendingActivationRoomId = DungeonRoomStateController.InvalidId;
             SetEncounterState(state, RoomEncounterState.Locked);
             return true;
@@ -173,7 +202,7 @@ namespace ProceduralDungeon
                     pendingDoors.RemoveAt(i);
                     continue;
                 }
-                if (WouldOverlapPlayer(door)) continue;
+                if (WouldOverlapTrackedActor(door)) continue;
                 door.Close();
                 pendingDoors.RemoveAt(i);
             }
@@ -216,7 +245,7 @@ namespace ProceduralDungeon
             {
                 DungeonDoor door = roomDoors[i];
                 if (door == null) continue;
-                if (WouldOverlapPlayer(door))
+                if (WouldOverlapTrackedActor(door))
                 {
                     if (!pendingDoors.Contains(door)) pendingDoors.Add(door);
                     allClosed = false;
@@ -226,16 +255,16 @@ namespace ProceduralDungeon
             return allClosed;
         }
 
-        private bool WouldOverlapPlayer(DungeonDoor door)
+        private bool WouldOverlapTrackedActor(DungeonDoor door)
         {
-            if (playerCollider == null || door == null) return false;
-            return playerCollider.bounds.Intersects(door.ColliderBounds);
+            if (trackedActorCollider == null || door == null) return false;
+            return trackedActorCollider.bounds.Intersects(door.ColliderBounds);
         }
 
-        private bool IsPlayerSafelyInsideRoom(int roomId)
+        private bool IsTrackedActorSafelyInsideRoom(int roomId)
         {
             if (areaTracker == null || areaTracker.CurrentAreaType != DungeonAreaType.Room
-                || areaTracker.CurrentRoomId != roomId || playerCollider == null) return false;
+                || areaTracker.CurrentRoomId != roomId || trackedActorCollider == null) return false;
             RoomData room = FindRoom(roomId);
             Vector2Int cell = areaTracker.CurrentCell;
             if (room == null || cell.x <= room.Bounds.xMin || cell.x >= room.Bounds.xMax - 1
@@ -243,7 +272,7 @@ namespace ProceduralDungeon
             if (!doorRegistry.TryGetDoorsForRoom(roomId,
                 out IReadOnlyList<DungeonDoor> roomDoors)) return false;
             for (int i = 0; i < roomDoors.Count; i++)
-                if (WouldOverlapPlayer(roomDoors[i])) return false;
+                if (WouldOverlapTrackedActor(roomDoors[i])) return false;
             return true;
         }
 
@@ -283,11 +312,6 @@ namespace ProceduralDungeon
             if (roomStateController == null) roomStateController = GetComponent<DungeonRoomStateController>();
             if (doorRegistry == null) doorRegistry = GetComponent<DungeonDoorRegistry>();
             if (areaTracker == null) areaTracker = GetComponent<DungeonAreaTracker>();
-            if (playerCollider == null)
-            {
-                TopDownPlayerController player = FindFirstObjectByType<TopDownPlayerController>();
-                if (player != null) playerCollider = player.GetComponent<Collider2D>();
-            }
         }
 
         private void Subscribe()

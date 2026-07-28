@@ -30,6 +30,7 @@ namespace ProceduralDungeon.Tests
         private DungeonDoorRegistry doorRegistry;
         private DungeonRoomEncounterController encounters;
         private DungeonEnemyEncounterRegistry enemyRegistry;
+        private DungeonPrototypeRuntimeAdapter prototypeAdapter;
         private DungeonRuntimeController runtime;
         private TopDownPlayerController playerController;
         private TopDownPlayerAttack playerAttack;
@@ -68,7 +69,7 @@ namespace ProceduralDungeon.Tests
             playerAttack = playerObject.AddComponent<TopDownPlayerAttack>();
 
             DungeonPlayerSpawner spawner = dungeonObject.AddComponent<DungeonPlayerSpawner>();
-            SetField(spawner, "prototypePlayer", playerObject.transform);
+            spawner.SetTrackedActor(playerObject.transform);
             SetField(spawner, "floorTilemap", floorTilemap);
 
             cameraObject = new GameObject("Door Encounter Test Camera");
@@ -80,17 +81,18 @@ namespace ProceduralDungeon.Tests
 
             areaTracker = dungeonObject.AddComponent<DungeonAreaTracker>();
             SetField(areaTracker, "grid", grid);
-            SetField(areaTracker, "player", playerObject.transform);
+            areaTracker.SetTrackedActor(playerObject.transform);
             roomStates = dungeonObject.AddComponent<DungeonRoomStateController>();
             doorRegistry = dungeonObject.AddComponent<DungeonDoorRegistry>();
             SetField(doorRegistry, "grid", grid);
             encounters = dungeonObject.AddComponent<DungeonRoomEncounterController>();
-            SetField(encounters, "playerCollider", playerCollider);
+            encounters.SetTrackedActor(playerObject.transform, playerCollider);
             enemyRegistry = dungeonObject.AddComponent<DungeonEnemyEncounterRegistry>();
 
             runtime = dungeonObject.AddComponent<DungeonRuntimeController>();
-            SetField(runtime, "playerController", playerController);
             SetField(runtime, "cameraFollow", cameraFollow);
+            prototypeAdapter = dungeonObject.AddComponent<DungeonPrototypeRuntimeAdapter>();
+            prototypeAdapter.Initialize();
         }
 
         [TearDown]
@@ -197,6 +199,55 @@ namespace ProceduralDungeon.Tests
             Assert.That(Encounter(roles.StartRoomId).State, Is.EqualTo(RoomEncounterState.Cleared));
             Assert.That(encounters.HasPendingActivation, Is.False);
             Assert.That(enemyRegistry.GetLiveEnemyCount(roles.StartRoomId), Is.Zero);
+        }
+
+        [Test]
+        public void CoreGeneration_WithoutPrototypeCombat_UsesGenericActorAndExternalClear()
+        {
+            prototypeAdapter.Shutdown();
+            Object.DestroyImmediate(prototypeAdapter);
+            Object.DestroyImmediate(enemyRegistry);
+            Object.DestroyImmediate(playerAttack);
+            Object.DestroyImmediate(playerController);
+            Assert.That(playerObject.GetComponent<TopDownPlayerController>(), Is.Null);
+            Assert.That(playerObject.GetComponent<TopDownPlayerAttack>(), Is.Null);
+            Assert.That(dungeonObject.GetComponent<DungeonEnemyEncounterRegistry>(), Is.Null);
+            Assert.That(runtime.SetTrackedActor(playerObject.transform, playerCollider), Is.True);
+
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            FindAnyPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            MoveThroughToEntrance(exit, entry);
+            MoveToCell(InteriorCell(entry));
+            Assert.That(encounters.ProcessPendingActivation(), Is.True);
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Locked));
+            Assert.That(dungeonObject.GetComponentsInChildren<DungeonEnemy>(true), Is.Empty);
+
+            int clearedEvents = 0;
+            encounters.EncounterStateChanged += change =>
+            {
+                if (change.RoomId == entry.RoomId
+                    && change.CurrentState == RoomEncounterState.Cleared) clearedEvents++;
+            };
+            Assert.That(encounters.TryClearRoom(entry.RoomId), Is.True);
+            Assert.That(clearedEvents, Is.EqualTo(1));
+            AssertRoomDoorsOpen(entry.RoomId);
+
+            Assert.That(runtime.RegenerateCurrentSeed(), Is.True);
+            Assert.That(runtime.RegenerateCurrentSeed(), Is.True);
+            Assert.That(areaTracker.TrackedActor, Is.SameAs(playerObject.transform));
+            Assert.That(encounters.TrackedActorCollider, Is.SameAs(playerCollider));
+            Assert.That(encounters.HasPendingActivation, Is.False);
+            Assert.That(dungeonObject.GetComponentsInChildren<DungeonEnemy>(true), Is.Empty);
+        }
+
+        [Test]
+        public void MissingTrackedActor_ReturnsExplicitValidationWithoutException()
+        {
+            encounters.SetTrackedActor(null, null);
+
+            Assert.That(encounters.ValidateTrackedActor(out string error), Is.False);
+            Assert.That(error, Does.Contain("Transform"));
+            Assert.DoesNotThrow(() => encounters.ProcessPendingActivation());
         }
 
         [Test]
@@ -379,8 +430,13 @@ namespace ProceduralDungeon.Tests
             eventSystem.SetSelectedGameObject(inputObject);
             Assert.That(eventSystem.currentSelectedGameObject, Is.SameAs(inputObject));
 
-            Assert.That(encounters.TryDebugClearActiveRoomForSelection(inputObject), Is.False);
+            DungeonEncounterDebugInput debugInput =
+                dungeonObject.AddComponent<DungeonEncounterDebugInput>();
+            Assert.That(debugInput.TryClearActiveRoomForSelection(inputObject), Is.False);
             Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Locked));
+            eventSystem.SetSelectedGameObject(null);
+            Assert.That(debugInput.TryClearActiveRoomForSelection(null), Is.True);
+            Assert.That(Encounter(entry.RoomId).State, Is.EqualTo(RoomEncounterState.Cleared));
         }
 
         [Test]
@@ -877,6 +933,27 @@ namespace ProceduralDungeon.Tests
                 }
             }
             Assert.Fail("No Start-to-Normal room passage was found.");
+        }
+
+        private void FindAnyPassageFromStart(out DoorwayData exit, out DoorwayData entry)
+        {
+            exit = null;
+            entry = null;
+            for (int i = 0; i < doorways.Doorways.Count; i++)
+            {
+                DoorwayData candidate = doorways.Doorways[i];
+                if (candidate.RoomId != roles.StartRoomId) continue;
+                for (int j = 0; j < doorways.Doorways.Count; j++)
+                {
+                    DoorwayData other = doorways.Doorways[j];
+                    if (other.ConnectionIndex != candidate.ConnectionIndex
+                        || other.RoomId == candidate.RoomId) continue;
+                    exit = candidate;
+                    entry = other;
+                    return;
+                }
+            }
+            Assert.Fail("No passage from the Start room was found.");
         }
 
         private void MoveThroughToEntrance(DoorwayData from, DoorwayData to)

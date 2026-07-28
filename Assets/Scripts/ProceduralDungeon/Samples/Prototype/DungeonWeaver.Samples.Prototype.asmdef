@@ -1,0 +1,18 @@
+{
+    "name": "DungeonWeaver.Samples.Prototype",
+    "rootNamespace": "ProceduralDungeon",
+    "references": [
+        "DungeonWeaver.Core",
+        "Unity.InputSystem",
+        "Unity.ugui"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

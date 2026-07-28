@@ -8,13 +8,11 @@ namespace ProceduralDungeon
     [RequireComponent(typeof(DungeonAreaTracker))]
     [RequireComponent(typeof(DungeonRoomStateController))]
     [RequireComponent(typeof(DungeonDoorRegistry), typeof(DungeonRoomEncounterController))]
-    [RequireComponent(typeof(DungeonEnemyEncounterRegistry))]
     [RequireComponent(typeof(DungeonTilemapRenderer), typeof(DungeonRoomRoleAssigner), typeof(DungeonPlayerSpawner))]
     public sealed class DungeonRuntimeController : MonoBehaviour
     {
         [SerializeField] private bool generateOnStart = true;
         [SerializeField] private int defaultSeed = 12345;
-        [SerializeField] private TopDownPlayerController playerController;
         [SerializeField] private TopDownCameraFollow cameraFollow;
         [SerializeField] private bool logPipelineSteps = true;
 
@@ -26,7 +24,6 @@ namespace ProceduralDungeon
         private DungeonRoomStateController roomStateController;
         private DungeonDoorRegistry doorRegistry;
         private DungeonRoomEncounterController encounterController;
-        private DungeonEnemyEncounterRegistry enemyRegistry;
         private DungeonTilemapRenderer tilemapRenderer;
         private DungeonRoomRoleAssigner roleAssigner;
         private DungeonPlayerSpawner playerSpawner;
@@ -41,6 +38,8 @@ namespace ProceduralDungeon
         public string LastStatusMessage => lastStatusMessage;
         public int DefaultSeed => defaultSeed;
         public event Action<string> StatusChanged;
+        public event Action RuntimeClearing;
+        public event Action<int> GenerationCompleted;
 
         private void Awake()
         {
@@ -71,13 +70,12 @@ namespace ProceduralDungeon
                 if (!HasRequiredReferences()) return FailGeneration("dependency validation");
 
                 LogStep($"Generating seed {requestedSeed}.");
-                SetPlayerGameplay(false);
-                StopPlayerBody();
+                RaiseRuntimeClearing();
+                StopTrackedActorBody();
 
                 areaTracker.ClearTracking();
                 roomStateController.ClearStates();
                 encounterController.ClearStates();
-                enemyRegistry.ClearAll();
                 doorRegistry.ClearDoors();
                 tilemapRenderer.ClearDungeonTilemap();
                 roleAssigner.ClearRoomRoles();
@@ -112,6 +110,9 @@ namespace ProceduralDungeon
                 if (!roleAssigner.IsRoleDataCurrent) return FailGeneration("room role assignment");
                 LogStep($"Assigned start room {roleAssigner.StartRoomId} and boss room {roleAssigner.BossRoomId}.");
 
+                if (!ConfigureTrackedActor(out string actorError))
+                    return FailGeneration($"tracked actor configuration: {actorError}");
+
                 if (!areaTracker.BuildLookup() || !areaTracker.IsLookupCurrent)
                     return FailGeneration("area lookup building");
                 LogStep($"Built area lookup for {areaTracker.TotalLookupCellCount} cells.");
@@ -132,13 +133,10 @@ namespace ProceduralDungeon
                     return FailGeneration("room encounter state initialization");
                 LogStep($"Initialized encounter state for {encounterController.TotalRoomCount} rooms.");
 
-                if (!enemyRegistry.BuildPlans(requestedSeed) || !enemyRegistry.HasPlans)
-                    return FailGeneration("enemy encounter planning");
-                LogStep($"Planned {enemyRegistry.TotalPlannedEnemyCount} enemies for {enemyRegistry.PlannedRoomCount} rooms.");
-
-                if (!playerSpawner.TryPlacePlayerAtStart()) return FailGeneration("player spawning");
+                if (!playerSpawner.TryPlaceTrackedActorAtStart())
+                    return FailGeneration("tracked actor spawning");
                 cameraFollow.RefreshDungeonBounds();
-                if (!areaTracker.RefreshPlayerArea()
+                if (!areaTracker.RefreshTrackedActorArea()
                     || !areaTracker.IsInsideRoom
                     || areaTracker.CurrentRoomId != roleAssigner.StartRoomId)
                     return FailGeneration("initial area tracking");
@@ -147,11 +145,11 @@ namespace ProceduralDungeon
                 if (!ValidateInitialDoorAndEncounterState())
                     return FailGeneration("initial door and encounter validation");
                 LogStep($"Captured initial room state signature {roomStateController.InitialStateSignature}.");
-                SetPlayerGameplay(true);
 
                 lastGeneratedSeed = requestedSeed;
                 hasSuccessfulDungeon = true;
                 SetStatus($"Dungeon generated with seed {requestedSeed}.");
+                RaiseGenerationCompleted(requestedSeed);
                 Debug.Log($"[DungeonRuntimeController] {lastStatusMessage}", this);
                 return true;
             }
@@ -188,8 +186,8 @@ namespace ProceduralDungeon
             }
 
             CacheComponents();
-            SetPlayerGameplay(false);
-            StopPlayerBody();
+            RaiseRuntimeClearing();
+            StopTrackedActorBody();
             ClearGeneratedData();
             hasSuccessfulDungeon = false;
             SetStatus("Runtime dungeon cleared.");
@@ -198,8 +196,7 @@ namespace ProceduralDungeon
 
         private bool FailGeneration(string stage, Exception exception = null)
         {
-            SetPlayerGameplay(false);
-            StopPlayerBody();
+            StopTrackedActorBody();
             try
             {
                 ClearGeneratedData();
@@ -221,7 +218,6 @@ namespace ProceduralDungeon
             areaTracker?.ClearTracking();
             roomStateController?.ClearStates();
             encounterController?.ClearStates();
-            enemyRegistry?.ClearAll();
             doorRegistry?.ClearDoors();
             tilemapRenderer?.ClearDungeonTilemap();
             roleAssigner?.ClearRoomRoles();
@@ -232,18 +228,35 @@ namespace ProceduralDungeon
             cameraFollow?.InvalidateDungeonBounds();
         }
 
-        private void SetPlayerGameplay(bool enabled)
+        public bool SetTrackedActor(Transform actorTransform, Collider2D actorCollider)
         {
-            if (playerController == null) return;
-            TopDownPlayerAttack attack = playerController.GetComponent<TopDownPlayerAttack>();
-            if (attack != null) attack.enabled = enabled;
-            playerController.enabled = enabled;
+            CacheComponents();
+            if (playerSpawner == null || areaTracker == null || encounterController == null)
+                return false;
+            playerSpawner.SetTrackedActor(actorTransform);
+            areaTracker.SetTrackedActor(actorTransform);
+            encounterController.SetTrackedActor(actorTransform, actorCollider);
+            return actorTransform != null && actorCollider != null;
         }
 
-        private void StopPlayerBody()
+        private bool ConfigureTrackedActor(out string error)
         {
-            if (playerController == null) return;
-            Rigidbody2D body = playerController.GetComponent<Rigidbody2D>();
+            if (playerSpawner == null)
+            {
+                error = "Dungeon actor spawner is missing.";
+                return false;
+            }
+            if (!playerSpawner.ValidateTrackedActor(out error)) return false;
+            Transform actor = playerSpawner.TrackedActor;
+            Collider2D actorCollider = playerSpawner.TrackedActorCollider;
+            areaTracker.SetTrackedActor(actor);
+            encounterController.SetTrackedActor(actor, actorCollider);
+            return encounterController.ValidateTrackedActor(out error);
+        }
+
+        private void StopTrackedActorBody()
+        {
+            Rigidbody2D body = playerSpawner != null ? playerSpawner.TrackedActorBody : null;
             if (body != null) body.linearVelocity = Vector2.zero;
         }
 
@@ -257,7 +270,6 @@ namespace ProceduralDungeon
             if (roomStateController == null) roomStateController = GetComponent<DungeonRoomStateController>();
             if (doorRegistry == null) doorRegistry = GetComponent<DungeonDoorRegistry>();
             if (encounterController == null) encounterController = GetComponent<DungeonRoomEncounterController>();
-            if (enemyRegistry == null) enemyRegistry = GetComponent<DungeonEnemyEncounterRegistry>();
             if (tilemapRenderer == null) tilemapRenderer = GetComponent<DungeonTilemapRenderer>();
             if (roleAssigner == null) roleAssigner = GetComponent<DungeonRoomRoleAssigner>();
             if (playerSpawner == null) playerSpawner = GetComponent<DungeonPlayerSpawner>();
@@ -267,9 +279,9 @@ namespace ProceduralDungeon
         {
             return generator != null && graphBuilder != null && corridorBuilder != null && doorwayBuilder != null
                 && areaTracker != null && roomStateController != null
-                && doorRegistry != null && encounterController != null && enemyRegistry != null
+                && doorRegistry != null && encounterController != null
                 && tilemapRenderer != null && roleAssigner != null && playerSpawner != null
-                && playerController != null && cameraFollow != null;
+                && cameraFollow != null;
         }
 
         private bool ValidateInitialRoomState()
@@ -294,9 +306,35 @@ namespace ProceduralDungeon
                     out DungeonRoomEncounterRuntimeState startEncounter))
                 return false;
             return startEncounter.State == RoomEncounterState.Cleared
-                && encounterController.ActiveLockedRoomId == DungeonRoomStateController.InvalidId
-                && enemyRegistry.GetPlannedEnemyCount(roleAssigner.StartRoomId) == 0
-                && enemyRegistry.LiveEnemyCount == 0;
+                && encounterController.ActiveLockedRoomId == DungeonRoomStateController.InvalidId;
+        }
+
+        private void RaiseRuntimeClearing()
+        {
+            Action callbacks = RuntimeClearing;
+            if (callbacks == null) return;
+            foreach (Delegate listener in callbacks.GetInvocationList())
+            {
+                try { ((Action)listener)(); }
+                catch (Exception exception)
+                {
+                    Debug.LogError($"[DungeonRuntimeController] Runtime clearing listener failed: {exception.Message}", this);
+                }
+            }
+        }
+
+        private void RaiseGenerationCompleted(int seed)
+        {
+            Action<int> callbacks = GenerationCompleted;
+            if (callbacks == null) return;
+            foreach (Delegate listener in callbacks.GetInvocationList())
+            {
+                try { ((Action<int>)listener)(seed); }
+                catch (Exception exception)
+                {
+                    Debug.LogError($"[DungeonRuntimeController] Generation listener failed: {exception.Message}", this);
+                }
+            }
         }
 
         private void LogStep(string message)
