@@ -34,13 +34,28 @@ You can also declare the same URL in the consuming project's `Packages/manifest.
 - `DungeonRoomEncounterController`: generic room lock and clear lifecycle.
 - `DungeonRuntimeController`: coordinates generation and regeneration.
 
-## Minimum scene setup
+## Automatic scene setup
 
-1. Create a `Grid` with separate floor and wall `Tilemap` children.
-2. Add the generation, rendering, role, tracking, room-state, door, encounter, actor-spawner, and runtime components to one dungeon coordinator GameObject.
-3. Assign the Grid, Tilemaps, floor/wall tiles, and a tracked actor `Transform` with a `Collider2D`.
-4. Assign a `TopDownCameraFollow`, or provide another camera integration around the generated Tilemap.
-5. Call `DungeonRuntimeController.GenerateDungeon(seed)` or enable startup generation in the Inspector.
+After installing the package, use **Tools > Dungeon Weaver > Create Dungeon Setup**. The command creates an idempotent, Undo-compatible hierarchy containing the coordinator, Grid, Floor/Wall Tilemaps, camera, and required Core components. It never creates gameplay actors, enemies, or Tile assets, and it does not modify unrelated scene objects.
+
+After running the command:
+
+1. Create or choose consumer-owned floor and wall `TileBase` assets.
+2. Assign them to `DungeonTilemapRenderer`.
+3. Create your actor with a `Collider2D` and optionally a `Rigidbody2D`.
+4. Assign it through `DungeonPlayerSpawner.SetTrackedActor` or `DungeonRuntimeController.SetTrackedActor`.
+5. Enable startup generation or call `DungeonRuntimeController.GenerateDungeon(seed)`.
+
+## Manual minimum scene setup
+
+1. Install the package through Package Manager.
+2. Create a `Grid` with separate Floor and Wall `Tilemap` children; keep the Grid cell size at `1, 1, 0`.
+3. Add `DungeonGenerator`, `DungeonGraphBuilder`, `DungeonCorridorBuilder`, `DungeonDoorwayBuilder`, `DungeonTilemapRenderer`, `DungeonRoomRoleAssigner`, `DungeonPlayerSpawner`, `DungeonAreaTracker`, `DungeonRoomStateController`, `DungeonDoorRegistry`, `DungeonRoomEncounterController`, and `DungeonRuntimeController` to one coordinator GameObject.
+4. Add a Camera with `TopDownCameraFollow` or provide an equivalent camera integration.
+5. Assign the Grid, Floor/Wall Tilemaps, and consumer-owned floor/wall `TileBase` assets to the relevant components.
+6. Create an actor with `Transform` and `Collider2D`, then bind it with `DungeonRuntimeController.SetTrackedActor` or `DungeonPlayerSpawner.SetTrackedActor`.
+7. Set the serialized seed or pass one directly to `DungeonRuntimeController.GenerateDungeon(seed)`.
+8. Call `GenerateDungeon`, or enable `generateOnStart` only after all tile, camera, and actor references are assigned.
 
 Calling `GenerateDungeon` again performs deterministic regeneration and clears the previous runtime state first.
 
