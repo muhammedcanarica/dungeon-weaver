@@ -88,6 +88,52 @@ namespace ProceduralDungeon.Tests
         }
 
         [Test]
+        public void GeneratorDefaults_Seed12345GeneratesFifteenRooms()
+        {
+            Assert.That(generator.Seed, Is.EqualTo(12345));
+            Assert.That(generator.TargetRoomCount, Is.EqualTo(15));
+            Assert.That(generator.GenerationArea, Is.EqualTo(new RectInt(-40, -25, 80, 50)));
+            Assert.That(generator.MinRoomSize, Is.EqualTo(new Vector2Int(8, 8)));
+            Assert.That(generator.MaxRoomSize, Is.EqualTo(new Vector2Int(14, 12)));
+            Assert.That(generator.MinimumRoomSpacing, Is.EqualTo(2));
+            Assert.That(generator.MaxPlacementAttempts, Is.EqualTo(1500));
+
+            generator.Generate();
+
+            Assert.That(generator.Rooms.Count, Is.EqualTo(15));
+        }
+
+        [Test]
+        public void GeneratedRooms_AreNeverSmallerThanEightByEight()
+        {
+            generator.SetSeed(12345);
+            generator.Generate();
+
+            for (int i = 0; i < generator.Rooms.Count; i++)
+            {
+                RectInt bounds = generator.Rooms[i].Bounds;
+                Assert.That(bounds.width, Is.InRange(8, 14));
+                Assert.That(bounds.height, Is.InRange(8, 12));
+            }
+        }
+
+        [Test]
+        public void Generator_SameSeedProducesSameRoomLayout()
+        {
+            generator.SetSeed(12345);
+            generator.Generate();
+            var firstLayout = new List<RectInt>(generator.Rooms.Count);
+            for (int i = 0; i < generator.Rooms.Count; i++)
+                firstLayout.Add(generator.Rooms[i].Bounds);
+
+            generator.Generate();
+
+            Assert.That(generator.Rooms.Count, Is.EqualTo(firstLayout.Count));
+            for (int i = 0; i < firstLayout.Count; i++)
+                Assert.That(generator.Rooms[i].Bounds, Is.EqualTo(firstLayout[i]));
+        }
+
+        [Test]
         public void BuildDoorways_CreatesTwoValidRecordsPerConnection()
         {
             Build(12345, false);

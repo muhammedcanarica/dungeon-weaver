@@ -11,11 +11,11 @@ namespace ProceduralDungeon
 
         [Header("Room Generation")]
         [SerializeField] private int targetRoomCount = 15;
-        [SerializeField] private RectInt generationArea = new RectInt(-25, -15, 50, 30);
-        [SerializeField] private Vector2Int minRoomSize = new Vector2Int(4, 4);
-        [SerializeField] private Vector2Int maxRoomSize = new Vector2Int(9, 8);
-        [SerializeField] private int minimumRoomSpacing = 1;
-        [SerializeField] private int maxPlacementAttempts = 500;
+        [SerializeField] private RectInt generationArea = new RectInt(-40, -25, 80, 50);
+        [SerializeField] private Vector2Int minRoomSize = new Vector2Int(8, 8);
+        [SerializeField] private Vector2Int maxRoomSize = new Vector2Int(14, 12);
+        [SerializeField] private int minimumRoomSpacing = 2;
+        [SerializeField] private int maxPlacementAttempts = 1500;
 
         [SerializeField, HideInInspector]
         private List<RoomData> rooms = new List<RoomData>();

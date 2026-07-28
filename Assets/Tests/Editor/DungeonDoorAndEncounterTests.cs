@@ -114,7 +114,7 @@ namespace ProceduralDungeon.Tests
             int expectedPhysicalCount = UniquePhysicalDoorCount();
 
             Assert.That(doorways.Doorways.Count, Is.EqualTo(32));
-            Assert.That(expectedPhysicalCount, Is.EqualTo(29));
+            Assert.That(expectedPhysicalCount, Is.EqualTo(31));
             Assert.That(doorRegistry.DoorCount, Is.EqualTo(expectedPhysicalCount));
             Assert.That(doorRegistry.DoorwayAssociationCount, Is.EqualTo(doorways.Doorways.Count));
             Assert.That(dungeonObject.GetComponents<DungeonDoorRegistry>().Length, Is.EqualTo(1));
@@ -321,10 +321,9 @@ namespace ProceduralDungeon.Tests
             Assert.That(enemyRegistry.HasPlans, Is.True);
             Assert.That(enemyRegistry.PlannedRoomCount, Is.EqualTo(generator.Rooms.Count - 1));
             Assert.That(enemyRegistry.GetPlannedEnemyCount(roles.StartRoomId), Is.Zero);
+            Assert.That(enemyRegistry.TryGetPlansForRoom(roles.StartRoomId, out _), Is.False);
             Assert.That(enemyRegistry.LiveEnemyCount, Is.Zero);
-            Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(7237375054462008254L));
-            Vector2Int playerSpawnCell = RoomCenter(FindRoom(roles.StartRoomId));
-            int largestNormalCount = 0;
+            Assert.That(enemyRegistry.PlanSignature, Is.Not.Zero);
 
             for (int roomIndex = 0; roomIndex < generator.Rooms.Count; roomIndex++)
             {
@@ -332,10 +331,10 @@ namespace ProceduralDungeon.Tests
                 if (room.RoomId == roles.StartRoomId) continue;
                 Assert.That(enemyRegistry.TryGetPlansForRoom(room.RoomId,
                     out IReadOnlyList<DungeonEnemySpawnPlan> plans), Is.True);
-                Assert.That(plans.Count, room.RoomId == roles.BossRoomId
-                    ? Is.InRange(4, 6) : Is.InRange(2, 4));
-                if (room.RoomId != roles.BossRoomId)
-                    largestNormalCount = Mathf.Max(largestNormalCount, plans.Count);
+                int maximumCount = room.RoomId == roles.BossRoomId ? 6 : 4;
+                Assert.That(plans.Count, Is.InRange(0, maximumCount));
+                Assert.That(plans.Count,
+                    Is.LessThanOrEqualTo(CountSafeCells(room) / enemyRegistry.SafeCellsPerEnemy));
                 var cells = new HashSet<Vector2Int>();
                 for (int i = 0; i < plans.Count; i++)
                 {
@@ -347,20 +346,55 @@ namespace ProceduralDungeon.Tests
                     Assert.That(room.Bounds.Contains(plan.SpawnCell), Is.True);
                     Assert.That(renderer.FloorTilemap.HasTile(cell), Is.True);
                     Assert.That(renderer.WallTilemap.HasTile(cell), Is.False);
-                    Assert.That(plan.SpawnCell, Is.Not.EqualTo(playerSpawnCell));
                     Assert.That(cells.Add(plan.SpawnCell), Is.True);
                     for (int doorwayIndex = 0; doorwayIndex < doorways.Doorways.Count; doorwayIndex++)
                     {
-                        Assert.That(plan.SpawnCell,
-                            Is.Not.EqualTo(doorways.Doorways[doorwayIndex].EntranceCell));
-                        Assert.That(plan.SpawnCell,
-                            Is.Not.EqualTo(doorways.Doorways[doorwayIndex].FirstCorridorCell));
+                        DoorwayData doorway = doorways.Doorways[doorwayIndex];
+                        Assert.That(ManhattanDistance(plan.SpawnCell, doorway.EntranceCell),
+                            Is.GreaterThanOrEqualTo(enemyRegistry.DoorwaySafeDistance));
+                        Assert.That(ManhattanDistance(plan.SpawnCell, doorway.FirstCorridorCell),
+                            Is.GreaterThanOrEqualTo(enemyRegistry.DoorwaySafeDistance));
                     }
+
+                    for (int otherIndex = 0; otherIndex < i; otherIndex++)
+                        Assert.That(ManhattanDistance(plan.SpawnCell, plans[otherIndex].SpawnCell),
+                            Is.GreaterThanOrEqualTo(enemyRegistry.MinimumSpawnDistance));
                 }
             }
+        }
 
-            Assert.That(enemyRegistry.GetPlannedEnemyCount(roles.BossRoomId),
-                Is.GreaterThanOrEqualTo(largestNormalCount));
+        [Test]
+        public void RestrictedSafeAreaAndDensityCapacity_CanReduceBelowConfiguredMinimums()
+        {
+            SetField(enemyRegistry, "doorwaySafeDistance", 1000);
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.Zero);
+            Assert.That(enemyRegistry.PlannedRoomCount, Is.EqualTo(generator.Rooms.Count - 1));
+
+            SetField(enemyRegistry, "doorwaySafeDistance", 3);
+            SetField(enemyRegistry, "safeCellsPerEnemy", 10000);
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.Zero);
+        }
+
+        [Test]
+        public void Regenerate_RemovesLiveEnemiesAndDoesNotDuplicatePlans()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            int plannedCount = enemyRegistry.TotalPlannedEnemyCount;
+            long signature = enemyRegistry.PlanSignature;
+            FindPassageFromStart(out DoorwayData exit, out DoorwayData entry);
+            MoveThroughToEntrance(exit, entry);
+            Assert.That(enemyRegistry.LiveEnemyCount, Is.GreaterThan(0));
+
+            Assert.That(runtime.RegenerateCurrentSeed(), Is.True);
+
+            Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.EqualTo(plannedCount));
+            Assert.That(enemyRegistry.PlannedRoomCount, Is.EqualTo(generator.Rooms.Count - 1));
+            Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(signature));
+            Assert.That(enemyRegistry.LiveEnemyCount, Is.Zero);
+            Assert.That(dungeonObject.GetComponentsInChildren<DungeonEnemy>(true), Is.Empty);
+            Assert.That(dungeonObject.GetComponents<DungeonEnemyEncounterRegistry>().Length, Is.EqualTo(1));
         }
 
         [Test]
@@ -368,10 +402,12 @@ namespace ProceduralDungeon.Tests
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             long first = enemyRegistry.PlanSignature;
+            List<string> firstPlans = CaptureEnemyPlanLayout();
             Assert.That(runtime.GenerateDungeon(54321), Is.True);
             Assert.That(enemyRegistry.PlanSignature, Is.Not.EqualTo(first));
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(first));
+            CollectionAssert.AreEqual(firstPlans, CaptureEnemyPlanLayout());
 
             Assert.That(runtime.GenerateDungeon(-54321), Is.True);
             Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.GreaterThan(0));
@@ -718,7 +754,8 @@ namespace ProceduralDungeon.Tests
                 {
                     DoorwayData other = doorways.Doorways[j];
                     if (other.ConnectionIndex != candidate.ConnectionIndex
-                        || other.RoomId == candidate.RoomId || other.RoomId == roles.BossRoomId) continue;
+                        || other.RoomId == candidate.RoomId || other.RoomId == roles.BossRoomId
+                        || enemyRegistry.GetPlannedEnemyCount(other.RoomId) == 0) continue;
                     exit = candidate;
                     entry = other;
                     return;
@@ -766,6 +803,65 @@ namespace ProceduralDungeon.Tests
         {
             return new Vector2Int(room.Bounds.xMin + (room.Bounds.width - 1) / 2,
                 room.Bounds.yMin + (room.Bounds.height - 1) / 2);
+        }
+
+        private int CountSafeCells(RoomData room)
+        {
+            int count = 0;
+            for (int y = room.Bounds.yMin; y < room.Bounds.yMax; y++)
+            {
+                for (int x = room.Bounds.xMin; x < room.Bounds.xMax; x++)
+                {
+                    var cell = new Vector2Int(x, y);
+                    var tileCell = new Vector3Int(x, y, 0);
+                    if (!renderer.FloorTilemap.HasTile(tileCell)
+                        || renderer.WallTilemap.HasTile(tileCell)) continue;
+
+                    bool safe = true;
+                    for (int i = 0; i < doorways.Doorways.Count; i++)
+                    {
+                        DoorwayData doorway = doorways.Doorways[i];
+                        if (ManhattanDistance(cell, doorway.EntranceCell)
+                                < enemyRegistry.DoorwaySafeDistance
+                            || ManhattanDistance(cell, doorway.FirstCorridorCell)
+                                < enemyRegistry.DoorwaySafeDistance)
+                        {
+                            safe = false;
+                            break;
+                        }
+                    }
+
+                    if (safe) count++;
+                }
+            }
+
+            return count;
+        }
+
+        private List<string> CaptureEnemyPlanLayout()
+        {
+            var result = new List<string>();
+            var rooms = new List<RoomData>(generator.Rooms);
+            rooms.Sort((left, right) => left.RoomId.CompareTo(right.RoomId));
+            for (int roomIndex = 0; roomIndex < rooms.Count; roomIndex++)
+            {
+                int roomId = rooms[roomIndex].RoomId;
+                if (!enemyRegistry.TryGetPlansForRoom(roomId,
+                    out IReadOnlyList<DungeonEnemySpawnPlan> plans)) continue;
+                result.Add($"Room:{roomId}:Count:{plans.Count}");
+                for (int planIndex = 0; planIndex < plans.Count; planIndex++)
+                {
+                    DungeonEnemySpawnPlan plan = plans[planIndex];
+                    result.Add($"{plan.RoomId}:{plan.EnemyIndex}:{plan.SpawnCell.x}:{plan.SpawnCell.y}");
+                }
+            }
+
+            return result;
+        }
+
+        private static int ManhattanDistance(Vector2Int left, Vector2Int right)
+        {
+            return Mathf.Abs(left.x - right.x) + Mathf.Abs(left.y - right.y);
         }
 
         private static Tilemap CreateTilemap(string name, Transform parent)

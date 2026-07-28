@@ -5020,14 +5020,14 @@ MonoBehaviour:
   seed: 12345
   targetRoomCount: 15
   generationArea:
-    x: -25
-    y: -15
-    width: 50
-    height: 30
-  minRoomSize: {x: 4, y: 4}
-  maxRoomSize: {x: 9, y: 8}
-  minimumRoomSpacing: 1
-  maxPlacementAttempts: 500
+    x: -40
+    y: -25
+    width: 80
+    height: 50
+  minRoomSize: {x: 8, y: 8}
+  maxRoomSize: {x: 14, y: 12}
+  minimumRoomSpacing: 2
+  maxPlacementAttempts: 1500
   rooms:
   - roomId: 0
     bounds:
@@ -5716,6 +5716,9 @@ MonoBehaviour:
   normalMaximumCount: 4
   bossMinimumCount: 4
   bossMaximumCount: 6
+  minimumSpawnDistance: 3
+  doorwaySafeDistance: 3
+  safeCellsPerEnemy: 10
   enemyMaxHealth: 3
   enemyMoveSpeed: 2.25
 --- !u!1 &1238119777

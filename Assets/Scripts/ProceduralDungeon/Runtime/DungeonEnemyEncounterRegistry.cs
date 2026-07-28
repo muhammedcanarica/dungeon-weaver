@@ -18,6 +18,9 @@ namespace ProceduralDungeon
         [SerializeField, Min(1)] private int normalMaximumCount = 4;
         [SerializeField, Min(1)] private int bossMinimumCount = 4;
         [SerializeField, Min(1)] private int bossMaximumCount = 6;
+        [SerializeField, Min(0)] private int minimumSpawnDistance = 3;
+        [SerializeField, Min(0)] private int doorwaySafeDistance = 3;
+        [SerializeField, Min(1)] private int safeCellsPerEnemy = 10;
         [SerializeField, Min(1)] private int enemyMaxHealth = 3;
         [SerializeField, Min(0f)] private float enemyMoveSpeed = 2.25f;
 
@@ -56,6 +59,9 @@ namespace ProceduralDungeon
         }
         public bool HasPlans => hasPlans;
         public long PlanSignature => planSignature;
+        public int MinimumSpawnDistance => Mathf.Max(0, minimumSpawnDistance);
+        public int DoorwaySafeDistance => Mathf.Max(0, doorwaySafeDistance);
+        public int SafeCellsPerEnemy => Mathf.Max(1, safeCellsPerEnemy);
 
         private void OnEnable()
         {
@@ -86,19 +92,12 @@ namespace ProceduralDungeon
 
             var rooms = new List<RoomData>(generator.Rooms);
             rooms.Sort((left, right) => left.RoomId.CompareTo(right.RoomId));
-            Vector2Int playerSpawnCell = GetRoomCenterCell(FindRoom(roleAssigner.StartRoomId));
-            var excludedDoorwayCells = new HashSet<Vector2Int>();
-            for (int i = 0; i < doorwayBuilder.Doorways.Count; i++)
-            {
-                excludedDoorwayCells.Add(doorwayBuilder.Doorways[i].EntranceCell);
-                excludedDoorwayCells.Add(doorwayBuilder.Doorways[i].FirstCorridorCell);
-            }
 
             for (int i = 0; i < rooms.Count; i++)
             {
                 RoomData room = rooms[i];
                 if (room.RoomId == roleAssigner.StartRoomId) continue;
-                BuildRoomPlan(dungeonSeed, room, playerSpawnCell, excludedDoorwayCells);
+                BuildRoomPlan(dungeonSeed, room);
             }
 
             planSignature = ComputePlanSignature();
@@ -222,60 +221,84 @@ namespace ProceduralDungeon
             }
         }
 
-        private void BuildRoomPlan(int dungeonSeed, RoomData room, Vector2Int playerSpawnCell,
-            HashSet<Vector2Int> excludedDoorwayCells)
+        private void BuildRoomPlan(int dungeonSeed, RoomData room)
         {
             int derivedSeed = DeriveRoomSeed(dungeonSeed, room.RoomId);
             var random = new System.Random(derivedSeed);
             bool boss = room.RoomId == roleAssigner.BossRoomId;
             int minimum = boss ? bossMinimumCount : normalMinimumCount;
             int maximum = boss ? bossMaximumCount : normalMaximumCount;
-            minimum = Mathf.Max(1, minimum);
-            maximum = Mathf.Max(minimum, maximum);
-            int targetCount = random.Next(minimum, maximum + 1);
+            maximum = Mathf.Max(0, maximum);
+            minimum = Mathf.Clamp(minimum, 0, maximum);
+            int targetCount = maximum == 0 ? 0 : random.Next(minimum, maximum + 1);
 
-            var preferred = new List<Vector2Int>();
-            var nearDoorway = new List<Vector2Int>();
-            for (int y = room.Bounds.yMin + 1; y < room.Bounds.yMax - 1; y++)
+            List<Vector2Int> safeCells = CollectSafeCells(room);
+            int densityCapacity = safeCells.Count / SafeCellsPerEnemy;
+            int desiredCount = Mathf.Min(targetCount, densityCapacity);
+            Shuffle(safeCells, random);
+
+            var selectedCells = new List<Vector2Int>(desiredCount);
+            for (int i = 0; i < safeCells.Count && selectedCells.Count < desiredCount; i++)
             {
-                for (int x = room.Bounds.xMin + 1; x < room.Bounds.xMax - 1; x++)
+                Vector2Int candidate = safeCells[i];
+                if (IsFarEnoughFromSelected(candidate, selectedCells)) selectedCells.Add(candidate);
+            }
+
+            var plans = new List<DungeonEnemySpawnPlan>(selectedCells.Count);
+            for (int i = 0; i < selectedCells.Count; i++)
+                plans.Add(new DungeonEnemySpawnPlan(room.RoomId, selectedCells[i], i, enemyMaxHealth));
+            plansByRoom.Add(room.RoomId, plans);
+            totalPlanCount += plans.Count;
+            if (plans.Count < targetCount)
+                Debug.LogWarning($"[DungeonEnemyEncounterRegistry] Room {room.RoomId} enemy count reduced from {targetCount} to {plans.Count}; {safeCells.Count} safe cells provide density capacity {densityCapacity} with minimum spacing {MinimumSpawnDistance}.", this);
+        }
+
+        private List<Vector2Int> CollectSafeCells(RoomData room)
+        {
+            var cells = new List<Vector2Int>();
+            for (int y = room.Bounds.yMin; y < room.Bounds.yMax; y++)
+            {
+                for (int x = room.Bounds.xMin; x < room.Bounds.xMax; x++)
                 {
                     var cell = new Vector2Int(x, y);
-                    if (cell == playerSpawnCell || excludedDoorwayCells.Contains(cell)
-                        || !tilemapRenderer.FloorTilemap.HasTile(new Vector3Int(x, y, 0))
-                        || tilemapRenderer.WallTilemap.HasTile(new Vector3Int(x, y, 0))) continue;
-                    if (DistanceFromRoomDoorways(room.RoomId, cell) >= 2) preferred.Add(cell);
-                    else nearDoorway.Add(cell);
+                    if (IsValidFloorCell(cell) && IsOutsideDoorwaySafeAreas(cell)) cells.Add(cell);
                 }
             }
 
-            preferred.Sort(CompareCells);
-            nearDoorway.Sort(CompareCells);
-            Shuffle(preferred, random);
-            Shuffle(nearDoorway, random);
-            preferred.AddRange(nearDoorway);
-            int actualCount = Mathf.Min(targetCount, preferred.Count);
-            var plans = new List<DungeonEnemySpawnPlan>(actualCount);
-            for (int i = 0; i < actualCount; i++)
-                plans.Add(new DungeonEnemySpawnPlan(room.RoomId, preferred[i], i, enemyMaxHealth));
-            plansByRoom.Add(room.RoomId, plans);
-            totalPlanCount += plans.Count;
-            if (actualCount < targetCount)
-                Debug.LogWarning($"[DungeonEnemyEncounterRegistry] Room {room.RoomId} enemy count reduced from {targetCount} to {actualCount} because only that many safe cells exist.", this);
+            cells.Sort(CompareCells);
+            return cells;
         }
 
-        private int DistanceFromRoomDoorways(int roomId, Vector2Int cell)
+        private bool IsValidFloorCell(Vector2Int cell)
         {
-            int best = int.MaxValue;
+            var tileCell = new Vector3Int(cell.x, cell.y, 0);
+            return tilemapRenderer.FloorTilemap.HasTile(tileCell)
+                && !tilemapRenderer.WallTilemap.HasTile(tileCell);
+        }
+
+        private bool IsOutsideDoorwaySafeAreas(Vector2Int cell)
+        {
             for (int i = 0; i < doorwayBuilder.Doorways.Count; i++)
             {
                 DoorwayData doorway = doorwayBuilder.Doorways[i];
-                if (doorway.RoomId != roomId) continue;
-                int distance = Mathf.Abs(cell.x - doorway.EntranceCell.x)
-                    + Mathf.Abs(cell.y - doorway.EntranceCell.y);
-                if (distance < best) best = distance;
+                if (ManhattanDistance(cell, doorway.EntranceCell) < DoorwaySafeDistance
+                    || ManhattanDistance(cell, doorway.FirstCorridorCell) < DoorwaySafeDistance)
+                    return false;
             }
-            return best;
+
+            return true;
+        }
+
+        private bool IsFarEnoughFromSelected(Vector2Int candidate, List<Vector2Int> selectedCells)
+        {
+            for (int i = 0; i < selectedCells.Count; i++)
+                if (ManhattanDistance(candidate, selectedCells[i]) < MinimumSpawnDistance) return false;
+            return true;
+        }
+
+        private static int ManhattanDistance(Vector2Int left, Vector2Int right)
+        {
+            return Mathf.Abs(left.x - right.x) + Mathf.Abs(left.y - right.y);
         }
 
         private void HandleEncounterStateChanged(DungeonRoomEncounterChange change)
@@ -314,30 +337,26 @@ namespace ProceduralDungeon
 
         private long ComputePlanSignature()
         {
-            var allPlans = new List<DungeonEnemySpawnPlan>(totalPlanCount);
-            foreach (KeyValuePair<int, List<DungeonEnemySpawnPlan>> entry in plansByRoom)
-                allPlans.AddRange(entry.Value);
-            allPlans.Sort((left, right) =>
-            {
-                int value = left.RoomId.CompareTo(right.RoomId);
-                if (value != 0) return value;
-                value = left.SpawnCell.x.CompareTo(right.SpawnCell.x);
-                if (value != 0) return value;
-                value = left.SpawnCell.y.CompareTo(right.SpawnCell.y);
-                return value != 0 ? value : left.EnemyIndex.CompareTo(right.EnemyIndex);
-            });
-
+            var roomIds = new List<int>(plansByRoom.Keys);
+            roomIds.Sort();
             ulong hash = Offset;
-            AddInt(ref hash, allPlans.Count);
-            for (int i = 0; i < allPlans.Count; i++)
+            AddInt(ref hash, roomIds.Count);
+            AddInt(ref hash, totalPlanCount);
+            for (int roomIndex = 0; roomIndex < roomIds.Count; roomIndex++)
             {
-                DungeonEnemySpawnPlan plan = allPlans[i];
-                AddInt(ref hash, plan.RoomId);
-                AddInt(ref hash, plan.EnemyIndex);
-                AddInt(ref hash, plan.SpawnCell.x);
-                AddInt(ref hash, plan.SpawnCell.y);
-                AddInt(ref hash, plan.MaxHealth);
-                AddInt(ref hash, plan.TypeId);
+                int roomId = roomIds[roomIndex];
+                List<DungeonEnemySpawnPlan> plans = plansByRoom[roomId];
+                AddInt(ref hash, roomId);
+                AddInt(ref hash, plans.Count);
+                for (int planIndex = 0; planIndex < plans.Count; planIndex++)
+                {
+                    DungeonEnemySpawnPlan plan = plans[planIndex];
+                    AddInt(ref hash, plan.EnemyIndex);
+                    AddInt(ref hash, plan.SpawnCell.x);
+                    AddInt(ref hash, plan.SpawnCell.y);
+                    AddInt(ref hash, plan.MaxHealth);
+                    AddInt(ref hash, plan.TypeId);
+                }
             }
             return unchecked((long)hash);
         }
@@ -391,13 +410,6 @@ namespace ProceduralDungeon
             for (int i = 0; i < generator.Rooms.Count; i++)
                 if (generator.Rooms[i].RoomId == roomId) return generator.Rooms[i];
             return null;
-        }
-
-        private static Vector2Int GetRoomCenterCell(RoomData room)
-        {
-            return room == null ? default : new Vector2Int(
-                room.Bounds.xMin + (room.Bounds.width - 1) / 2,
-                room.Bounds.yMin + (room.Bounds.height - 1) / 2);
         }
 
         private static int DeriveRoomSeed(int dungeonSeed, int roomId)
