@@ -76,12 +76,15 @@ namespace ProceduralDungeon
             RoomData boss = null;
             int bestHops = -1;
             long bestWeight = long.MinValue;
-            bool hasPreferredBoss = HasBossCandidate(rooms, startRoomId, true);
-            bool hasNonLShapeBoss = !hasPreferredBoss && HasBossCandidate(rooms, startRoomId, false);
+            bool hasArenaBoss = HasArenaBossCandidate(rooms, startRoomId);
+            bool hasPreferredBoss = !hasArenaBoss && HasBossCandidate(rooms, startRoomId, true);
+            bool hasNonLShapeBoss = !hasArenaBoss && !hasPreferredBoss
+                && HasBossCandidate(rooms, startRoomId, false);
             for (int i = 0; i < rooms.Count; i++)
             {
                 RoomData candidate = rooms[i];
                 if (candidate.RoomId == startRoomId) continue;
+                if (hasArenaBoss && !IsArenaBoss(candidate)) continue;
                 if (hasPreferredBoss && !IsPreferredBoss(candidate)) continue;
                 if (hasNonLShapeBoss && candidate.ShapeType == DungeonRoomShapeType.LShape) continue;
                 int hops = distance[candidate.RoomId];
@@ -104,10 +107,20 @@ namespace ProceduralDungeon
 
         private static int CompareStart(RoomData left, RoomData right)
         {
-            int c = StartShapeRank(left.ShapeType).CompareTo(StartShapeRank(right.ShapeType));
+            int c = DungeonRoomArchetypePolicy.StartRank(left.Archetype)
+                .CompareTo(DungeonRoomArchetypePolicy.StartRank(right.Archetype));
+            if (c != 0) return c;
+            c = StartShapeRank(left.ShapeType).CompareTo(StartShapeRank(right.ShapeType));
             if (c != 0) return c;
             c = left.Bounds.xMin.CompareTo(right.Bounds.xMin); if (c != 0) return c;
             c = left.Bounds.yMin.CompareTo(right.Bounds.yMin); return c != 0 ? c : left.RoomId.CompareTo(right.RoomId);
+        }
+
+        private bool HasArenaBossCandidate(IReadOnlyList<RoomData> rooms, int startId)
+        {
+            for (int i = 0; i < rooms.Count; i++)
+                if (rooms[i].RoomId != startId && IsArenaBoss(rooms[i])) return true;
+            return false;
         }
 
         private bool HasBossCandidate(IReadOnlyList<RoomData> rooms, int startId,
@@ -126,6 +139,13 @@ namespace ProceduralDungeon
         private bool IsPreferredBoss(RoomData room)
         {
             return room.ShapeType != DungeonRoomShapeType.LShape
+                && room.InteriorCellCount >= MinimumBossInteriorCells;
+        }
+
+        private bool IsArenaBoss(RoomData room)
+        {
+            return room.Archetype == DungeonRoomArchetype.Arena
+                && DungeonRoomArchetypePolicy.IsShapeCompatible(room.Archetype, room.ShapeType)
                 && room.InteriorCellCount >= MinimumBossInteriorCells;
         }
 

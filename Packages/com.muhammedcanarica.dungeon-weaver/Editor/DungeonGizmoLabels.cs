@@ -22,7 +22,7 @@ namespace ProceduralDungeon.Editor
                 }
                 Vector3 localCenter = new Vector3(room.Center.x, room.Center.y, 0f);
                 Handles.Label(drawer.transform.TransformPoint(localCenter),
-                    $"Room {room.RoomId}{suffix}");
+                    $"Room {room.RoomId}{suffix}\n{room.ShapeType} / {room.Archetype}");
             }
         }
     }

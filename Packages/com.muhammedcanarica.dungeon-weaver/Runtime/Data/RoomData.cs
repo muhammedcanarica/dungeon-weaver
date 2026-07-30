@@ -20,6 +20,7 @@ namespace ProceduralDungeon
 
         [SerializeField] private int roomId;
         [SerializeField] private RectInt bounds;
+        [SerializeField] private DungeonRoomArchetype archetype = DungeonRoomArchetype.Standard;
         [SerializeField] private DungeonRoomShapeType shapeType;
         [SerializeField] private List<Vector2Int> occupiedCells = new List<Vector2Int>();
         [SerializeField] private List<Vector2Int> interiorCells = new List<Vector2Int>();
@@ -40,6 +41,7 @@ namespace ProceduralDungeon
         public int Y => bounds.y;
         public int Width => bounds.width;
         public int Height => bounds.height;
+        public DungeonRoomArchetype Archetype => archetype;
         public DungeonRoomShapeType ShapeType
         {
             get { EnsureGeometry(); return shapeType; }
@@ -64,15 +66,23 @@ namespace ProceduralDungeon
         public long GeometrySignature => CalculateGeometrySignature();
 
         public RoomData(int roomId, RectInt bounds)
-            : this(roomId, bounds, DungeonRoomShapeType.Rectangle, null)
+            : this(roomId, bounds, DungeonRoomArchetype.Standard,
+                DungeonRoomShapeType.Rectangle, null)
         {
         }
 
         public RoomData(int roomId, RectInt bounds, DungeonRoomShapeType shapeType,
             IReadOnlyCollection<Vector2Int> occupiedCells)
+            : this(roomId, bounds, DungeonRoomArchetype.Standard, shapeType, occupiedCells)
+        {
+        }
+
+        public RoomData(int roomId, RectInt bounds, DungeonRoomArchetype archetype,
+            DungeonRoomShapeType shapeType, IReadOnlyCollection<Vector2Int> occupiedCells)
         {
             this.roomId = roomId;
             this.bounds = bounds;
+            this.archetype = archetype;
             this.shapeType = shapeType;
             SetGeometry(occupiedCells);
         }
@@ -211,6 +221,7 @@ namespace ProceduralDungeon
             AddInt(ref hash, bounds.y);
             AddInt(ref hash, bounds.width);
             AddInt(ref hash, bounds.height);
+            AddInt(ref hash, (int)archetype);
             AddInt(ref hash, (int)shapeType);
             AddInt(ref hash, occupiedCells.Count);
             for (int i = 0; i < occupiedCells.Count; i++)

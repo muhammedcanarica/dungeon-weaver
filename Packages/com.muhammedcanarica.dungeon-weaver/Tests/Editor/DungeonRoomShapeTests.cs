@@ -62,6 +62,7 @@ namespace ProceduralDungeon.Tests
         public void ForcedShape_ProducesConnectedUsableGeometry(DungeonRoomShapeType shape)
         {
             SetOnlyShapeWeight(shape);
+            SetField(generator, "targetRoomCount", 1);
             generator.SetSeed(12345);
             generator.Generate();
 
@@ -115,6 +116,8 @@ namespace ProceduralDungeon.Tests
             }
 
             if (hasRectangle) Assert.That(start.ShapeType, Is.EqualTo(DungeonRoomShapeType.Rectangle));
+            Assert.That(start.Archetype, Is.Not.EqualTo(DungeonRoomArchetype.Compact));
+            Assert.That(boss.Archetype, Is.EqualTo(DungeonRoomArchetype.Arena));
             if (hasPreferredBoss)
             {
                 Assert.That(boss.ShapeType, Is.Not.EqualTo(DungeonRoomShapeType.LShape));

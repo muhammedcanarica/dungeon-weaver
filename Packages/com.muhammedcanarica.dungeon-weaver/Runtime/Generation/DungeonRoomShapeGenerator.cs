@@ -12,9 +12,18 @@ namespace ProceduralDungeon
         public static RoomData CreateRoom(int roomId, RectInt bounds,
             DungeonRoomShapeType requestedShape, int variant)
         {
+            return CreateRoom(roomId, bounds, DungeonRoomArchetype.Standard,
+                requestedShape, variant, 25, MinimumInteriorCellCount);
+        }
+
+        public static RoomData CreateRoom(int roomId, RectInt bounds,
+            DungeonRoomArchetype archetype, DungeonRoomShapeType requestedShape,
+            int variant, int minimumOccupiedCells, int minimumInteriorCells)
+        {
             if (requestedShape == DungeonRoomShapeType.Rectangle
                 || bounds.width < MinimumShapeDimension || bounds.height < MinimumShapeDimension)
-                return new RoomData(roomId, bounds);
+                return new RoomData(roomId, bounds, archetype,
+                    DungeonRoomShapeType.Rectangle, null);
 
             var occupied = new HashSet<Vector2Int>();
             switch (requestedShape)
@@ -29,11 +38,14 @@ namespace ProceduralDungeon
                     BuildAlcove(bounds, variant, occupied);
                     break;
                 default:
-                    return new RoomData(roomId, bounds);
+                    return new RoomData(roomId, bounds, archetype,
+                        DungeonRoomShapeType.Rectangle, null);
             }
 
-            var room = new RoomData(roomId, bounds, requestedShape, occupied);
-            return IsUsable(room) ? room : new RoomData(roomId, bounds);
+            var room = new RoomData(roomId, bounds, archetype, requestedShape, occupied);
+            return IsUsable(room, minimumOccupiedCells, minimumInteriorCells)
+                ? room : new RoomData(roomId, bounds, archetype,
+                    DungeonRoomShapeType.Rectangle, null);
         }
 
         private static void BuildLShape(RectInt bounds, int variant,
@@ -95,10 +107,13 @@ namespace ProceduralDungeon
             }
         }
 
-        private static bool IsUsable(RoomData room)
+        private static bool IsUsable(RoomData room, int minimumOccupiedCells,
+            int minimumInteriorCells)
         {
-            if (room.OccupiedCellCount < Mathf.Max(25, room.Bounds.width * room.Bounds.height / 2)
-                || room.InteriorCellCount < MinimumInteriorCellCount
+            if (room.OccupiedCellCount < Mathf.Max(minimumOccupiedCells,
+                    room.Bounds.width * room.Bounds.height / 2)
+                || room.InteriorCellCount < Mathf.Max(MinimumInteriorCellCount,
+                    minimumInteriorCells)
                 || !IsConnected(room.OccupiedCells)) return false;
 
             int usableDoorwayFaces = 0;

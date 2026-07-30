@@ -237,6 +237,7 @@ namespace ProceduralDungeon
             bool boss = room.RoomId == roleAssigner.BossRoomId;
             int minimum = boss ? bossMinimumCount : normalMinimumCount;
             int maximum = boss ? bossMaximumCount : normalMaximumCount;
+            ApplyArchetypeCapacity(room.Archetype, ref minimum, ref maximum);
             maximum = Mathf.Max(0, maximum);
             minimum = Mathf.Clamp(minimum, 0, maximum);
             int targetCount = maximum == 0 ? 0 : random.Next(minimum, maximum + 1);
@@ -260,6 +261,26 @@ namespace ProceduralDungeon
             totalPlanCount += plans.Count;
             if (plans.Count < targetCount)
                 Debug.LogWarning($"[DungeonEnemyEncounterRegistry] Room {room.RoomId} enemy count reduced from {targetCount} to {plans.Count}; {safeCells.Count} safe cells provide density capacity {densityCapacity} with minimum spacing {MinimumSpawnDistance}.", this);
+        }
+
+        private static void ApplyArchetypeCapacity(DungeonRoomArchetype archetype,
+            ref int minimum, ref int maximum)
+        {
+            switch (archetype)
+            {
+                case DungeonRoomArchetype.Compact:
+                    minimum = Mathf.Max(1, minimum - 1);
+                    maximum = Mathf.Max(minimum, maximum - 1);
+                    break;
+                case DungeonRoomArchetype.Large:
+                    minimum++;
+                    maximum++;
+                    break;
+                case DungeonRoomArchetype.Arena:
+                    minimum++;
+                    maximum += 2;
+                    break;
+            }
         }
 
         private List<Vector2Int> CollectSafeCells(RoomData room)

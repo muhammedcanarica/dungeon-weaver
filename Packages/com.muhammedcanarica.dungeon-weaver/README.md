@@ -21,7 +21,7 @@ You can also declare the same URL in the consuming project's `Packages/manifest.
 
 ## Main components
 
-- `DungeonGenerator`: deterministic room placement and weighted Rectangle, L, Cross, and Alcove geometry from a seed.
+- `DungeonGenerator`: deterministic Compact, Standard, Large, and Arena archetype selection, profile-based room sizing, placement, and compatible weighted Rectangle, L, Cross, and Alcove geometry from a seed.
 - `DungeonGraphBuilder`: deterministic connected room graph.
 - `DungeonCorridorBuilder`: corridor floor-cell generation.
 - `DungeonDoorwayBuilder`: doorway and corridor entrance data.
@@ -61,7 +61,9 @@ Calling `GenerateDungeon` again performs deterministic regeneration and clears t
 
 ## Determinism
 
-Generation uses stable ordering and explicit seeds. The same package version, settings, and seed produce the same room bounds, shape types, occupied cells, graph, corridor, doorway, door, and Core runtime layout. Shape weights are configured on `DungeonGenerator`; Rectangle remains enabled by default alongside L, Cross, and Alcove rooms.
+Generation uses stable ordering and explicit seeds. The same package version, settings, and seed produce the same room archetypes, bounds, shape types, occupied cells, graph, corridor, doorway, door, and Core runtime layout. `DungeonGenerator` exposes serialized Compact, Standard, Large, and Arena profiles with selection weight, minimum/maximum size, minimum usable floor area, and minimum interior area. Shape weights remain independently configurable; archetype/shape compatibility is applied deterministically before geometry generation.
+
+The default policy reserves a Standard start candidate and an Arena boss candidate when more than one room is requested. Start-room selection prefers non-Compact archetypes, while boss-room selection prefers a suitable Arena. When placement pressure is high, normal weighted rooms use a deterministic Large/Arena to Standard to Compact fallback; reserved role candidates are not silently downgraded.
 
 ## Encounter integration
 

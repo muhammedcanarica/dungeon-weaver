@@ -23,6 +23,8 @@ namespace ProceduralDungeon.Tests
         private Tile wallTile;
         private Grid grid;
         private DungeonGenerator generator;
+        private DungeonGraphBuilder graph;
+        private DungeonCorridorBuilder corridors;
         private DungeonDoorwayBuilder doorways;
         private DungeonTilemapRenderer renderer;
         private DungeonRoomRoleAssigner roles;
@@ -46,8 +48,8 @@ namespace ProceduralDungeon.Tests
         {
             dungeonObject = new GameObject("Door Encounter Test Dungeon");
             generator = dungeonObject.AddComponent<DungeonGenerator>();
-            dungeonObject.AddComponent<DungeonGraphBuilder>();
-            dungeonObject.AddComponent<DungeonCorridorBuilder>();
+            graph = dungeonObject.AddComponent<DungeonGraphBuilder>();
+            corridors = dungeonObject.AddComponent<DungeonCorridorBuilder>();
             doorways = dungeonObject.AddComponent<DungeonDoorwayBuilder>();
             renderer = dungeonObject.AddComponent<DungeonTilemapRenderer>();
             roles = dungeonObject.AddComponent<DungeonRoomRoleAssigner>();
@@ -560,6 +562,44 @@ namespace ProceduralDungeon.Tests
             Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.GreaterThan(0));
             Assert.That(runtime.GenerateDungeon(int.MaxValue), Is.True);
             Assert.That(enemyRegistry.TotalPlannedEnemyCount, Is.GreaterThan(0));
+        }
+
+        [Test]
+        public void ArchetypeRoundTrip_RestoresFullGenerationAndEnemyPlan()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            long roomSignature = generator.RoomLayoutSignature;
+            long doorwaySignature = doorways.DoorwaySignature;
+            long doorSignature = doorRegistry.LayoutSignature;
+            long lookupSignature = areaTracker.LookupSignature;
+            long stateSignature = roomStates.InitialStateSignature;
+            long enemySignature = enemyRegistry.PlanSignature;
+            int floorCount = renderer.FloorCellCount;
+            int wallCount = renderer.WallCellCount;
+            List<string> roomLayout = CaptureArchetypeLayout();
+            List<string> graphLayout = CaptureGraphLayout();
+            List<string> corridorLayout = CaptureCorridorLayout();
+            List<string> enemyLayout = CaptureEnemyPlanLayout();
+
+            Assert.That(runtime.GenerateDungeon(54321), Is.True);
+            Assert.That(generator.RoomLayoutSignature, Is.Not.EqualTo(roomSignature));
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+
+            Assert.That(generator.RoomLayoutSignature, Is.EqualTo(roomSignature));
+            Assert.That(doorways.DoorwaySignature, Is.EqualTo(doorwaySignature));
+            Assert.That(doorRegistry.LayoutSignature, Is.EqualTo(doorSignature));
+            Assert.That(areaTracker.LookupSignature, Is.EqualTo(lookupSignature));
+            Assert.That(roomStates.InitialStateSignature, Is.EqualTo(stateSignature));
+            Assert.That(enemyRegistry.PlanSignature, Is.EqualTo(enemySignature));
+            Assert.That(renderer.FloorCellCount, Is.EqualTo(floorCount));
+            Assert.That(renderer.WallCellCount, Is.EqualTo(wallCount));
+            Assert.That(renderer.IsTilemapCurrent, Is.True);
+            Assert.That(graph.IsGraphCurrent, Is.True);
+            Assert.That(corridors.IsCorridorDataCurrent, Is.True);
+            CollectionAssert.AreEqual(roomLayout, CaptureArchetypeLayout());
+            CollectionAssert.AreEqual(graphLayout, CaptureGraphLayout());
+            CollectionAssert.AreEqual(corridorLayout, CaptureCorridorLayout());
+            CollectionAssert.AreEqual(enemyLayout, CaptureEnemyPlanLayout());
         }
 
         [Test]
@@ -1279,6 +1319,44 @@ namespace ProceduralDungeon.Tests
                 }
             }
 
+            return result;
+        }
+
+        private List<string> CaptureArchetypeLayout()
+        {
+            var result = new List<string>(generator.Rooms.Count);
+            for (int i = 0; i < generator.Rooms.Count; i++)
+            {
+                RoomData room = generator.Rooms[i];
+                result.Add($"{room.RoomId}:{room.Archetype}:{room.Bounds.x}:{room.Bounds.y}:"
+                    + $"{room.Width}:{room.Height}:{room.ShapeType}:{room.GeometrySignature}");
+            }
+            return result;
+        }
+
+        private List<string> CaptureGraphLayout()
+        {
+            var result = new List<string>(graph.Connections.Count);
+            for (int i = 0; i < graph.Connections.Count; i++)
+            {
+                RoomConnectionData edge = graph.Connections[i];
+                result.Add($"{edge.RoomAId}:{edge.RoomBId}:{edge.WeightSquared}:"
+                    + edge.IsPrimaryConnection);
+            }
+            return result;
+        }
+
+        private List<string> CaptureCorridorLayout()
+        {
+            var result = new List<string>();
+            for (int i = 0; i < corridors.Corridors.Count; i++)
+            {
+                CorridorData corridor = corridors.Corridors[i];
+                result.Add($"{corridor.RoomAId}:{corridor.RoomBId}:"
+                    + $"{corridor.IsPrimaryConnection}:{corridor.UsedFallbackPathfinding}");
+                for (int cell = 0; cell < corridor.PathCells.Count; cell++)
+                    result.Add($"{corridor.PathCells[cell].x}:{corridor.PathCells[cell].y}");
+            }
             return result;
         }
 

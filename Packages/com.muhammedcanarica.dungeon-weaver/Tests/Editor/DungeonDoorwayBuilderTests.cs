@@ -93,7 +93,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(generator.TargetRoomCount, Is.EqualTo(15));
             Assert.That(generator.GenerationArea, Is.EqualTo(new RectInt(-40, -25, 80, 50)));
             Assert.That(generator.MinRoomSize, Is.EqualTo(new Vector2Int(8, 8)));
-            Assert.That(generator.MaxRoomSize, Is.EqualTo(new Vector2Int(14, 12)));
+            Assert.That(generator.MaxRoomSize, Is.EqualTo(new Vector2Int(16, 13)));
             Assert.That(generator.MinimumRoomSpacing, Is.EqualTo(2));
             Assert.That(generator.MaxPlacementAttempts, Is.EqualTo(1500));
 
@@ -103,16 +103,19 @@ namespace ProceduralDungeon.Tests
         }
 
         [Test]
-        public void GeneratedRooms_AreNeverSmallerThanEightByEight()
+        public void GeneratedRooms_FitTheirArchetypeSizeProfile()
         {
             generator.SetSeed(12345);
             generator.Generate();
 
             for (int i = 0; i < generator.Rooms.Count; i++)
             {
-                RectInt bounds = generator.Rooms[i].Bounds;
-                Assert.That(bounds.width, Is.InRange(8, 14));
-                Assert.That(bounds.height, Is.InRange(8, 12));
+                RoomData room = generator.Rooms[i];
+                RoomArchetypeSettings profile = generator.GetArchetypeSettings(room.Archetype);
+                Assert.That(room.Bounds.width,
+                    Is.InRange(profile.MinimumSize.x, profile.MaximumSize.x));
+                Assert.That(room.Bounds.height,
+                    Is.InRange(profile.MinimumSize.y, profile.MaximumSize.y));
             }
         }
 

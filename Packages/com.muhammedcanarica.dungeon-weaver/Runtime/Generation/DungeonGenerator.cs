@@ -12,10 +12,20 @@ namespace ProceduralDungeon
         [Header("Room Generation")]
         [SerializeField] private int targetRoomCount = 15;
         [SerializeField] private RectInt generationArea = new RectInt(-40, -25, 80, 50);
-        [SerializeField] private Vector2Int minRoomSize = new Vector2Int(8, 8);
-        [SerializeField] private Vector2Int maxRoomSize = new Vector2Int(14, 12);
+        [SerializeField, HideInInspector] private Vector2Int minRoomSize = new Vector2Int(8, 8);
+        [SerializeField, HideInInspector] private Vector2Int maxRoomSize = new Vector2Int(14, 12);
         [SerializeField] private int minimumRoomSpacing = 2;
         [SerializeField] private int maxPlacementAttempts = 1500;
+
+        [Header("Room Archetype Profiles")]
+        [SerializeField] private RoomArchetypeSettings compactProfile =
+            RoomArchetypeSettings.CreateDefault(DungeonRoomArchetype.Compact);
+        [SerializeField] private RoomArchetypeSettings standardProfile =
+            RoomArchetypeSettings.CreateDefault(DungeonRoomArchetype.Standard);
+        [SerializeField] private RoomArchetypeSettings largeProfile =
+            RoomArchetypeSettings.CreateDefault(DungeonRoomArchetype.Large);
+        [SerializeField] private RoomArchetypeSettings arenaProfile =
+            RoomArchetypeSettings.CreateDefault(DungeonRoomArchetype.Arena);
 
         [Header("Room Shape Variety")]
         [SerializeField, Min(0)] private int rectangleWeight = 4;
@@ -25,20 +35,40 @@ namespace ProceduralDungeon
 
         [SerializeField, HideInInspector]
         private List<RoomData> rooms = new List<RoomData>();
+        [SerializeField, HideInInspector] private int lastPlacementAttempts;
 
         public int Seed => seed;
         public int TargetRoomCount => targetRoomCount;
         public RectInt GenerationArea => generationArea;
-        public Vector2Int MinRoomSize => minRoomSize;
-        public Vector2Int MaxRoomSize => maxRoomSize;
+        public Vector2Int MinRoomSize => HasAllProfiles
+            ? new Vector2Int(Mathf.Min(compactProfile.MinimumSize.x,
+                    standardProfile.MinimumSize.x, largeProfile.MinimumSize.x,
+                    arenaProfile.MinimumSize.x),
+                Mathf.Min(compactProfile.MinimumSize.y, standardProfile.MinimumSize.y,
+                    largeProfile.MinimumSize.y, arenaProfile.MinimumSize.y))
+            : minRoomSize;
+        public Vector2Int MaxRoomSize => HasAllProfiles
+            ? new Vector2Int(Mathf.Max(compactProfile.MaximumSize.x,
+                    standardProfile.MaximumSize.x, largeProfile.MaximumSize.x,
+                    arenaProfile.MaximumSize.x),
+                Mathf.Max(compactProfile.MaximumSize.y, standardProfile.MaximumSize.y,
+                    largeProfile.MaximumSize.y, arenaProfile.MaximumSize.y))
+            : maxRoomSize;
         public int MinimumRoomSpacing => minimumRoomSpacing;
         public int MaxPlacementAttempts => maxPlacementAttempts;
         public int RectangleWeight => Mathf.Max(0, rectangleWeight);
         public int LShapeWeight => Mathf.Max(0, lShapeWeight);
         public int CrossShapeWeight => Mathf.Max(0, crossShapeWeight);
         public int AlcoveWeight => Mathf.Max(0, alcoveWeight);
+        public RoomArchetypeSettings CompactProfile => GetArchetypeSettings(DungeonRoomArchetype.Compact);
+        public RoomArchetypeSettings StandardProfile => GetArchetypeSettings(DungeonRoomArchetype.Standard);
+        public RoomArchetypeSettings LargeProfile => GetArchetypeSettings(DungeonRoomArchetype.Large);
+        public RoomArchetypeSettings ArenaProfile => GetArchetypeSettings(DungeonRoomArchetype.Arena);
+        public int LastPlacementAttempts => lastPlacementAttempts;
         public IReadOnlyList<RoomData> Rooms => rooms;
         public long RoomLayoutSignature => CalculateRoomLayoutSignature();
+        private bool HasAllProfiles => compactProfile != null && standardProfile != null
+            && largeProfile != null && arenaProfile != null;
 
         public void SetSeed(int newSeed)
         {
@@ -48,6 +78,7 @@ namespace ProceduralDungeon
         [ContextMenu("Generate Dungeon")]
         public void Generate()
         {
+            EnsureArchetypeSettings();
             if (!TryValidateSettings(out string validationError))
             {
                 Debug.LogError($"[DungeonGenerator] Generation cancelled: {validationError}", this);
@@ -56,30 +87,22 @@ namespace ProceduralDungeon
 
             EnsureRoomList();
             rooms.Clear();
-
-            int effectiveMaxWidth = Math.Min(maxRoomSize.x, generationArea.width);
-            int effectiveMaxHeight = Math.Min(maxRoomSize.y, generationArea.height);
-
-            // The generation area is a hard physical limit, so oversized configured
-            // maximums are capped locally without changing the Inspector settings.
-            if (effectiveMaxWidth < minRoomSize.x || effectiveMaxHeight < minRoomSize.y)
-            {
-                Debug.LogWarning(
-                    $"[DungeonGenerator] Generated 0/{targetRoomCount} rooms in 0 attempts with seed {seed}. " +
-                    "The minimum room size does not fit inside the generation area.",
-                    this);
-                return;
-            }
+            lastPlacementAttempts = 0;
 
             var random = new System.Random(seed);
             int attemptsUsed = 0;
+            int failedAttemptsForCurrentRoom = 0;
 
             while (rooms.Count < targetRoomCount && attemptsUsed < maxPlacementAttempts)
             {
                 attemptsUsed++;
-
-                int width = random.Next(minRoomSize.x, effectiveMaxWidth + 1);
-                int height = random.Next(minRoomSize.y, effectiveMaxHeight + 1);
+                DungeonRoomArchetype archetype = SelectPlacementArchetype(
+                    rooms.Count, failedAttemptsForCurrentRoom);
+                RoomArchetypeSettings profile = GetArchetypeSettings(archetype);
+                int effectiveMaxWidth = Math.Min(profile.MaximumSize.x, generationArea.width);
+                int effectiveMaxHeight = Math.Min(profile.MaximumSize.y, generationArea.height);
+                int width = random.Next(profile.MinimumSize.x, effectiveMaxWidth + 1);
+                int height = random.Next(profile.MinimumSize.y, effectiveMaxHeight + 1);
                 int x = random.Next(generationArea.xMin, generationArea.xMax - width + 1);
                 int y = random.Next(generationArea.yMin, generationArea.yMax - height + 1);
 
@@ -87,11 +110,14 @@ namespace ProceduralDungeon
 
                 if (!IsInsideGenerationArea(candidate) || OverlapsExistingRoom(candidate))
                 {
+                    failedAttemptsForCurrentRoom++;
                     continue;
                 }
 
-                rooms.Add(CreateRoom(rooms.Count, candidate));
+                rooms.Add(CreateRoom(rooms.Count, candidate, archetype, profile));
+                failedAttemptsForCurrentRoom = 0;
             }
+            lastPlacementAttempts = attemptsUsed;
 
             string summary =
                 $"[DungeonGenerator] Generated {rooms.Count}/{targetRoomCount} rooms " +
@@ -114,14 +140,29 @@ namespace ProceduralDungeon
             rooms.Clear();
         }
 
-        private RoomData CreateRoom(int roomId, RectInt roomBounds)
+        public RoomArchetypeSettings GetArchetypeSettings(DungeonRoomArchetype archetype)
         {
-            int rectangle = Mathf.Clamp(rectangleWeight, 0, 1000000);
-            int lShape = Mathf.Clamp(lShapeWeight, 0, 1000000);
-            int cross = Mathf.Clamp(crossShapeWeight, 0, 1000000);
-            int alcove = Mathf.Clamp(alcoveWeight, 0, 1000000);
+            EnsureArchetypeSettings();
+            switch (archetype)
+            {
+                case DungeonRoomArchetype.Compact: return compactProfile;
+                case DungeonRoomArchetype.Large: return largeProfile;
+                case DungeonRoomArchetype.Arena: return arenaProfile;
+                default: return standardProfile;
+            }
+        }
+
+        private RoomData CreateRoom(int roomId, RectInt roomBounds,
+            DungeonRoomArchetype archetype, RoomArchetypeSettings profile)
+        {
+            int rectangle = CompatibleWeight(archetype, DungeonRoomShapeType.Rectangle, rectangleWeight);
+            int lShape = CompatibleWeight(archetype, DungeonRoomShapeType.LShape, lShapeWeight);
+            int cross = CompatibleWeight(archetype, DungeonRoomShapeType.Cross, crossShapeWeight);
+            int alcove = CompatibleWeight(archetype, DungeonRoomShapeType.Alcove, alcoveWeight);
             int total = rectangle + lShape + cross + alcove;
-            if (total <= 0) return new RoomData(roomId, roomBounds);
+            if (total <= 0)
+                return new RoomData(roomId, roomBounds, archetype,
+                    DungeonRoomShapeType.Rectangle, null);
 
             var shapeRandom = new System.Random(DeriveShapeSeed(seed, roomId, roomBounds));
             int roll = shapeRandom.Next(total);
@@ -130,7 +171,49 @@ namespace ProceduralDungeon
             else if ((roll -= rectangle) < lShape) shape = DungeonRoomShapeType.LShape;
             else if ((roll -= lShape) < cross) shape = DungeonRoomShapeType.Cross;
             else shape = DungeonRoomShapeType.Alcove;
-            return DungeonRoomShapeGenerator.CreateRoom(roomId, roomBounds, shape, shapeRandom.Next());
+            return DungeonRoomShapeGenerator.CreateRoom(roomId, roomBounds, archetype,
+                shape, shapeRandom.Next(), profile.MinimumUsableFloorArea,
+                profile.MinimumInteriorArea);
+        }
+
+        private DungeonRoomArchetype SelectArchetype(int roomId)
+        {
+            if (roomId == 0) return DungeonRoomArchetype.Standard;
+            if (roomId == 1 && targetRoomCount > 1) return DungeonRoomArchetype.Arena;
+
+            int compact = compactProfile.SelectionWeight;
+            int standard = standardProfile.SelectionWeight;
+            int large = largeProfile.SelectionWeight;
+            int arena = arenaProfile.SelectionWeight;
+            int total = compact + standard + large + arena;
+            if (total <= 0) return DungeonRoomArchetype.Standard;
+
+            var random = new System.Random(DeriveArchetypeSeed(seed, roomId));
+            int roll = random.Next(total);
+            if (roll < compact) return DungeonRoomArchetype.Compact;
+            if ((roll -= compact) < standard) return DungeonRoomArchetype.Standard;
+            if ((roll -= standard) < large) return DungeonRoomArchetype.Large;
+            return DungeonRoomArchetype.Arena;
+        }
+
+        private DungeonRoomArchetype SelectPlacementArchetype(int roomId,
+            int failedAttempts)
+        {
+            DungeonRoomArchetype selected = SelectArchetype(roomId);
+            if (roomId <= 1) return selected;
+            if (failedAttempts >= 160 && selected == DungeonRoomArchetype.Standard)
+                return DungeonRoomArchetype.Compact;
+            if (failedAttempts >= 80 && (selected == DungeonRoomArchetype.Large
+                || selected == DungeonRoomArchetype.Arena))
+                return DungeonRoomArchetype.Standard;
+            return selected;
+        }
+
+        private static int CompatibleWeight(DungeonRoomArchetype archetype,
+            DungeonRoomShapeType shape, int configuredWeight)
+        {
+            return DungeonRoomArchetypePolicy.IsShapeCompatible(archetype, shape)
+                ? Mathf.Clamp(configuredWeight, 0, 1000000) : 0;
         }
 
         private long CalculateRoomLayoutSignature()
@@ -142,6 +225,10 @@ namespace ProceduralDungeon
             AddInt(ref hash, LShapeWeight);
             AddInt(ref hash, CrossShapeWeight);
             AddInt(ref hash, AlcoveWeight);
+            AddProfile(ref hash, compactProfile);
+            AddProfile(ref hash, standardProfile);
+            AddProfile(ref hash, largeProfile);
+            AddProfile(ref hash, arenaProfile);
             AddInt(ref hash, rooms?.Count ?? 0);
             if (rooms != null)
                 for (int i = 0; i < rooms.Count; i++) AddLong(ref hash,
@@ -159,6 +246,28 @@ namespace ProceduralDungeon
                 hash = hash * 397 ^ roomBounds.width;
                 return hash * 397 ^ roomBounds.height;
             }
+        }
+
+        private static int DeriveArchetypeSeed(int dungeonSeed, int roomId)
+        {
+            unchecked
+            {
+                int hash = dungeonSeed * 1103515245 + roomId * 486187739;
+                return hash ^ (int)0x41C64E6D;
+            }
+        }
+
+        private static void AddProfile(ref ulong hash, RoomArchetypeSettings profile)
+        {
+            if (profile == null) { AddInt(ref hash, int.MinValue); return; }
+            AddInt(ref hash, (int)profile.Archetype);
+            AddInt(ref hash, profile.SelectionWeight);
+            AddInt(ref hash, profile.MinimumSize.x);
+            AddInt(ref hash, profile.MinimumSize.y);
+            AddInt(ref hash, profile.MaximumSize.x);
+            AddInt(ref hash, profile.MaximumSize.y);
+            AddInt(ref hash, profile.MinimumUsableFloorArea);
+            AddInt(ref hash, profile.MinimumInteriorArea);
         }
 
         private static void AddInt(ref ulong hash, int value)
@@ -207,6 +316,11 @@ namespace ProceduralDungeon
                 return false;
             }
 
+            if (!TryValidateProfile(compactProfile, out validationError)
+                || !TryValidateProfile(standardProfile, out validationError)
+                || !TryValidateProfile(largeProfile, out validationError)
+                || !TryValidateProfile(arenaProfile, out validationError)) return false;
+
             if (minRoomSize.x <= 0 || minRoomSize.y <= 0)
             {
                 validationError = "Min Room Size width and height must both be positive.";
@@ -226,6 +340,39 @@ namespace ProceduralDungeon
             }
 
             validationError = string.Empty;
+            return true;
+        }
+
+        private bool TryValidateProfile(RoomArchetypeSettings profile, out string error)
+        {
+            if (profile == null)
+            {
+                error = "Room archetype profile is missing.";
+                return false;
+            }
+            Vector2Int minimum = profile.MinimumSize;
+            Vector2Int maximum = profile.MaximumSize;
+            if (minimum.x <= 0 || minimum.y <= 0 || maximum.x < minimum.x
+                || maximum.y < minimum.y)
+            {
+                error = $"{profile.Archetype} profile has an invalid size range.";
+                return false;
+            }
+            if (minimum.x > generationArea.width || minimum.y > generationArea.height)
+            {
+                error = $"{profile.Archetype} profile does not fit inside the generation area.";
+                return false;
+            }
+            long minimumFloor = (long)minimum.x * minimum.y;
+            long minimumInterior = (long)Mathf.Max(0, minimum.x - 2)
+                * Mathf.Max(0, minimum.y - 2);
+            if (profile.MinimumUsableFloorArea > minimumFloor
+                || profile.MinimumInteriorArea > minimumInterior)
+            {
+                error = $"{profile.Archetype} minimum area requirements exceed its minimum rectangle size.";
+                return false;
+            }
+            error = string.Empty;
             return true;
         }
 
@@ -266,6 +413,18 @@ namespace ProceduralDungeon
             {
                 rooms = new List<RoomData>();
             }
+        }
+
+        private void EnsureArchetypeSettings()
+        {
+            compactProfile ??= RoomArchetypeSettings.CreateDefault(DungeonRoomArchetype.Compact);
+            standardProfile ??= RoomArchetypeSettings.CreateDefault(DungeonRoomArchetype.Standard);
+            largeProfile ??= RoomArchetypeSettings.CreateDefault(DungeonRoomArchetype.Large);
+            arenaProfile ??= RoomArchetypeSettings.CreateDefault(DungeonRoomArchetype.Arena);
+            compactProfile.SetArchetype(DungeonRoomArchetype.Compact);
+            standardProfile.SetArchetype(DungeonRoomArchetype.Standard);
+            largeProfile.SetArchetype(DungeonRoomArchetype.Large);
+            arenaProfile.SetArchetype(DungeonRoomArchetype.Arena);
         }
     }
 }
