@@ -8,6 +8,8 @@
 - Shape-aware occupied, interior, and boundary cell data for rendering, corridors, doorways, roles, tracking, and actor spawning.
 - Deterministic Compact, Standard, Large, and Arena room archetypes with serialized size and usable-area profiles.
 - Archetype-aware shape compatibility, role selection, layout signatures, and controlled placement fallback.
+- Deterministic bounded-degree dungeon topology with scalable critical paths, controlled branches, dead ends, and loops.
+- Graph analysis APIs for degree, shortest paths, diameter, junctions, dead ends, and critical-path membership.
 
 ## [0.1.0] - 2026-07-28
 

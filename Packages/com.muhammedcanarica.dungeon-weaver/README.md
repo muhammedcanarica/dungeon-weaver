@@ -22,7 +22,8 @@ You can also declare the same URL in the consuming project's `Packages/manifest.
 ## Main components
 
 - `DungeonGenerator`: deterministic Compact, Standard, Large, and Arena archetype selection, profile-based room sizing, placement, and compatible weighted Rectangle, L, Cross, and Alcove geometry from a seed.
-- `DungeonGraphBuilder`: deterministic connected room graph.
+- `DungeonGraphBuilder`: deterministic connected topology with a scalable Start–Boss critical path, controlled dead ends, bounded room degree, branches, and limited loops.
+- `DungeonGraphAnalysis`: degree, dead-end, junction, shortest-distance, diameter, loop, critical-path, and off-path room queries.
 - `DungeonCorridorBuilder`: corridor floor-cell generation.
 - `DungeonDoorwayBuilder`: doorway and corridor entrance data.
 - `DungeonTilemapRenderer`: floor and wall Tilemap rendering.
@@ -64,6 +65,8 @@ Calling `GenerateDungeon` again performs deterministic regeneration and clears t
 Generation uses stable ordering and explicit seeds. The same package version, settings, and seed produce the same room archetypes, bounds, shape types, occupied cells, graph, corridor, doorway, door, and Core runtime layout. `DungeonGenerator` exposes serialized Compact, Standard, Large, and Arena profiles with selection weight, minimum/maximum size, minimum usable floor area, and minimum interior area. Shape weights remain independently configurable; archetype/shape compatibility is applied deterministically before geometry generation.
 
 The default policy reserves a Standard start candidate and an Arena boss candidate when more than one room is requested. Start-room selection prefers non-Compact archetypes, while boss-room selection prefers a suitable Arena. When placement pressure is high, normal weighted rooms use a deterministic Large/Arena to Standard to Compact fallback; reserved role candidates are not silently downgraded.
+
+`DungeonGraphBuilder` exposes a compact Topology section: target dead ends, maximum room degree, extra connection count, and minimum critical-path ratio. The default 15-room profile creates a bounded-degree spanning topology, distributes off-path rooms into branch chains, and adds up to two non-shortcutting loops. `DungeonRoomRoleAssigner` binds Start and the Arena Boss to the topology endpoints, and `DungeonGraphAnalysis` exposes deterministic queries such as `IsDeadEnd`, `IsJunction`, `IsOnCriticalPath`, and `GetShortestDistance`.
 
 ## Encounter integration
 

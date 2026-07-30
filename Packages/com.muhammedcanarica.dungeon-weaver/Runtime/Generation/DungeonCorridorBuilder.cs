@@ -29,10 +29,14 @@ namespace ProceduralDungeon
             {
                 DungeonGenerator generator = GetComponent<DungeonGenerator>();
                 DungeonGraphBuilder graph = GetComponent<DungeonGraphBuilder>();
+                DungeonTilemapRenderer renderer = GetComponent<DungeonTilemapRenderer>();
+                int doorwaySpan = renderer != null
+                    ? Mathf.Max(MinimumDoorwaySpan, renderer.CorridorWidth)
+                    : MinimumDoorwaySpan;
                 return generator != null && graph != null && graph.IsGraphCurrent && hasBuiltCorridors
                     && hasValidCorridorData
                     && builtCorridorSignature == Signature(generator.GenerationArea,
-                        generator.Rooms, graph.Connections)
+                        generator.Rooms, graph.Connections, doorwaySpan)
                     && Matches(graph.Connections);
             }
         }
@@ -42,6 +46,10 @@ namespace ProceduralDungeon
         {
             DungeonGenerator generator = GetComponent<DungeonGenerator>();
             DungeonGraphBuilder graph = GetComponent<DungeonGraphBuilder>();
+            DungeonTilemapRenderer renderer = GetComponent<DungeonTilemapRenderer>();
+            int doorwaySpan = renderer != null
+                ? Mathf.Max(MinimumDoorwaySpan, renderer.CorridorWidth)
+                : MinimumDoorwaySpan;
             EnsureList();
             Invalidate();
             if (generator == null || graph == null)
@@ -78,7 +86,8 @@ namespace ProceduralDungeon
                     return;
                 }
                 if (!TryBuildPath(generator.GenerationArea, generator.Rooms, roomA, roomB,
-                    out List<Vector2Int> path, out bool fallback, out string error))
+                    doorwaySpan, out List<Vector2Int> path, out bool fallback,
+                    out string error))
                 {
                     Fail($"Could not build corridor {connection.RoomAId}-{connection.RoomBId}: {error}");
                     return;
@@ -89,13 +98,13 @@ namespace ProceduralDungeon
             }
 
             if (!Validate(generator.GenerationArea, generator.Rooms, graph.Connections,
-                roomsById, out string validationError))
+                roomsById, doorwaySpan, out string validationError))
             {
                 Fail(validationError);
                 return;
             }
             builtCorridorSignature = Signature(generator.GenerationArea,
-                generator.Rooms, graph.Connections);
+                generator.Rooms, graph.Connections, doorwaySpan);
             hasBuiltCorridors = true;
             hasValidCorridorData = true;
             Debug.Log($"[DungeonCorridorBuilder] Built {corridors.Count} corridors: "
@@ -110,11 +119,14 @@ namespace ProceduralDungeon
         }
 
         private static bool TryBuildPath(RectInt area, IReadOnlyList<RoomData> rooms,
-            RoomData roomA, RoomData roomB, out List<Vector2Int> path,
+            RoomData roomA, RoomData roomB, int doorwaySpan,
+            out List<Vector2Int> path,
             out bool fallback, out string error)
         {
-            List<DoorCandidate> candidatesA = BuildDoorCandidates(area, roomA, roomB);
-            List<DoorCandidate> candidatesB = BuildDoorCandidates(area, roomB, roomA);
+            List<DoorCandidate> candidatesA = BuildDoorCandidates(area, roomA,
+                roomB, doorwaySpan);
+            List<DoorCandidate> candidatesB = BuildDoorCandidates(area, roomB,
+                roomA, doorwaySpan);
             if (candidatesA.Count == 0 || candidatesB.Count == 0)
             {
                 path = null;
@@ -158,28 +170,29 @@ namespace ProceduralDungeon
         }
 
         private static List<DoorCandidate> BuildDoorCandidates(RectInt area,
-            RoomData room, RoomData target)
+            RoomData room, RoomData target, int doorwaySpan)
         {
             var result = new List<DoorCandidate>();
             for (int i = 0; i < room.BoundaryCells.Count; i++)
             {
                 Vector2Int cell = room.BoundaryCells[i];
                 if (!room.IsOuterBoundaryCell(cell)) continue;
-                if (cell.x == room.Bounds.xMin) AddCandidate(area, room, target, cell, Vector2Int.left, result);
-                if (cell.x == room.Bounds.xMax - 1) AddCandidate(area, room, target, cell, Vector2Int.right, result);
-                if (cell.y == room.Bounds.yMin) AddCandidate(area, room, target, cell, Vector2Int.down, result);
-                if (cell.y == room.Bounds.yMax - 1) AddCandidate(area, room, target, cell, Vector2Int.up, result);
+                if (cell.x == room.Bounds.xMin) AddCandidate(area, room, target, cell, Vector2Int.left, doorwaySpan, result);
+                if (cell.x == room.Bounds.xMax - 1) AddCandidate(area, room, target, cell, Vector2Int.right, doorwaySpan, result);
+                if (cell.y == room.Bounds.yMin) AddCandidate(area, room, target, cell, Vector2Int.down, doorwaySpan, result);
+                if (cell.y == room.Bounds.yMax - 1) AddCandidate(area, room, target, cell, Vector2Int.up, doorwaySpan, result);
             }
             result.Sort(DoorCandidate.Compare);
             return result;
         }
 
         private static void AddCandidate(RectInt area, RoomData room, RoomData target,
-            Vector2Int entrance, Vector2Int outward, List<DoorCandidate> candidates)
+            Vector2Int entrance, Vector2Int outward, int doorwaySpan,
+            List<DoorCandidate> candidates)
         {
             Vector2Int outside = entrance + outward;
             if (!area.Contains(outside)
-                || !room.CanPlaceDoorway(entrance, outside, MinimumDoorwaySpan)) return;
+                || !room.CanPlaceDoorway(entrance, outside, doorwaySpan)) return;
             Vector2Int targetCell = target.SpawnCell;
             Vector2Int towardTarget = targetCell - entrance;
             int facingDot = (towardTarget.x * outward.x) + (towardTarget.y * outward.y);
@@ -326,7 +339,7 @@ namespace ProceduralDungeon
 
         private bool Validate(RectInt area, IReadOnlyList<RoomData> rooms,
             IReadOnlyList<RoomConnectionData> connections,
-            Dictionary<int, RoomData> roomsById, out string error)
+            Dictionary<int, RoomData> roomsById, int doorwaySpan, out string error)
         {
             if (corridors.Count != connections.Count)
             {
@@ -356,8 +369,8 @@ namespace ProceduralDungeon
 
                 IReadOnlyList<Vector2Int> path = corridor.PathCells;
                 if (path.Count < 4
-                    || !roomA.CanPlaceDoorway(path[0], path[1], MinimumDoorwaySpan)
-                    || !roomB.CanPlaceDoorway(path[path.Count - 1], path[path.Count - 2], MinimumDoorwaySpan))
+                    || !roomA.CanPlaceDoorway(path[0], path[1], doorwaySpan)
+                    || !roomB.CanPlaceDoorway(path[path.Count - 1], path[path.Count - 2], doorwaySpan))
                 {
                     error = "Invalid shape-aware corridor endpoint.";
                     return false;
@@ -393,13 +406,14 @@ namespace ProceduralDungeon
         }
 
         private static long Signature(RectInt area, IReadOnlyList<RoomData> rooms,
-            IReadOnlyList<RoomConnectionData> connections)
+            IReadOnlyList<RoomConnectionData> connections, int doorwaySpan)
         {
             ulong hash = Offset;
             AddInt(ref hash, area.x);
             AddInt(ref hash, area.y);
             AddInt(ref hash, area.width);
             AddInt(ref hash, area.height);
+            AddInt(ref hash, doorwaySpan);
             if (rooms != null)
                 for (int i = 0; i < rooms.Count; i++)
                     AddLong(ref hash, rooms[i] != null ? rooms[i].GeometrySignature : long.MinValue);

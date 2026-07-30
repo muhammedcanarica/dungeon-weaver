@@ -8,6 +8,7 @@ DungeonWeaver, Unity 6 ile geliştirilen seed tabanlı ve tekrar üretilebilir b
 - Odalar deterministik `Rectangle`, `LShape`, `Cross` ve `Alcove` geometrileri kullanır; gerçek occupied/interior/boundary hücreleri rendering, doorway ve spawn sistemlerine taşınır.
 - Her oda ayrıca deterministik bir `Compact`, `Standard`, `Large` veya `Arena` arketipine sahiptir. Arketip profilleri Inspector üzerinden ağırlık, minimum/maksimum boyut ve kullanılabilir alan eşikleriyle yapılandırılır.
 - Varsayılan `12345` seed değeri 15 oda üretir. Oda boyutları global bir aralık yerine seçilen arketip profilinden gelir; varsayılan profiller 8x8 Compact odalardan 16x13 Arena odalara kadar uzanır.
+- Graph topology; ölçeklenen bir Start–Boss critical path, kontrollü branch/dead-end odaları, sınırlı junction derecesi ve az sayıda anlamlı loop üretir. Varsayılan 15 odalık profil 3 dead-end, maksimum 4 room degree, 2 loop ve en az %45 critical-path oranı hedefler.
 - Koridor genişliği 3 hücredir ve fiziksel kapılar açıklığın tamamını kapatır.
 - Start, Normal ve Boss oda rolleri deterministik atanır.
 - Room exploration ile encounter durumları birbirinden bağımsız tutulur.
@@ -55,7 +56,7 @@ Assets/Tests/Editor/
 
 ### DungeonWeaver.Core
 
-Core; shape-aware room data ve generation, graph, corridor, doorway, room role, Tilemap, area tracking, exploration state, fiziksel kapılar, genel encounter lifecycle, actor spawn ve runtime generation pipeline sistemlerini içerir. `DungeonGenerator` üzerindeki shape ağırlıkları geometri çeşitliliğini; dört arketip profili ise seçim ağırlığı, boyut ve kullanılabilir alan eşiklerini ayarlar. Aynı seed ve aynı ayarlar aynı arketipleri, oda geometrisini ve gerçek oda hücrelerini üretir.
+Core; shape-aware room data ve generation, topology-aware graph, corridor, doorway, room role, Tilemap, area tracking, exploration state, fiziksel kapılar, genel encounter lifecycle, actor spawn ve runtime generation pipeline sistemlerini içerir. `DungeonGenerator` üzerindeki shape ağırlıkları geometri çeşitliliğini; dört arketip profili ise seçim ağırlığı, boyut ve kullanılabilir alan eşiklerini ayarlar. `DungeonGraphAnalysis` degree, dead-end, junction, loop, diameter ve Start–Boss critical-path sorgularını sağlar. Aynı seed ve aynı ayarlar aynı arketipleri, oda geometrisini, graph topology'sini ve gerçek oda hücrelerini üretir.
 
 Core doğrudan Input System, Unity UI, prototype player controller, player attack veya enemy sınıflarına referans vermez. Takip edilen varlık `Transform` ve `Collider2D` üzerinden bağlanır. `DungeonRoomEncounterController.TryClearRoom` ve `TryClearActiveRoom` API’leri enemy, puzzle, timer, boss veya başka bir oyun sisteminden çağrılabilir.
 

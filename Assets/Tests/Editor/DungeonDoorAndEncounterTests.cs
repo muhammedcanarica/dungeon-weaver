@@ -569,6 +569,7 @@ namespace ProceduralDungeon.Tests
         {
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
             long roomSignature = generator.RoomLayoutSignature;
+            long graphSignature = graph.GraphSignature;
             long doorwaySignature = doorways.DoorwaySignature;
             long doorSignature = doorRegistry.LayoutSignature;
             long lookupSignature = areaTracker.LookupSignature;
@@ -578,6 +579,7 @@ namespace ProceduralDungeon.Tests
             int wallCount = renderer.WallCellCount;
             List<string> roomLayout = CaptureArchetypeLayout();
             List<string> graphLayout = CaptureGraphLayout();
+            List<string> topologyLayout = CaptureTopologyLayout();
             List<string> corridorLayout = CaptureCorridorLayout();
             List<string> enemyLayout = CaptureEnemyPlanLayout();
 
@@ -586,6 +588,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(runtime.GenerateDungeon(12345), Is.True);
 
             Assert.That(generator.RoomLayoutSignature, Is.EqualTo(roomSignature));
+            Assert.That(graph.GraphSignature, Is.EqualTo(graphSignature));
             Assert.That(doorways.DoorwaySignature, Is.EqualTo(doorwaySignature));
             Assert.That(doorRegistry.LayoutSignature, Is.EqualTo(doorSignature));
             Assert.That(areaTracker.LookupSignature, Is.EqualTo(lookupSignature));
@@ -598,6 +601,7 @@ namespace ProceduralDungeon.Tests
             Assert.That(corridors.IsCorridorDataCurrent, Is.True);
             CollectionAssert.AreEqual(roomLayout, CaptureArchetypeLayout());
             CollectionAssert.AreEqual(graphLayout, CaptureGraphLayout());
+            CollectionAssert.AreEqual(topologyLayout, CaptureTopologyLayout());
             CollectionAssert.AreEqual(corridorLayout, CaptureCorridorLayout());
             CollectionAssert.AreEqual(enemyLayout, CaptureEnemyPlanLayout());
         }
@@ -1343,6 +1347,22 @@ namespace ProceduralDungeon.Tests
                 result.Add($"{edge.RoomAId}:{edge.RoomBId}:{edge.WeightSquared}:"
                     + edge.IsPrimaryConnection);
             }
+            return result;
+        }
+
+        private List<string> CaptureTopologyLayout()
+        {
+            DungeonGraphAnalysis analysis = graph.Analysis;
+            var result = new List<string>
+            {
+                $"{analysis.StartRoomId}:{analysis.BossRoomId}:{analysis.EdgeCount}:"
+                    + $"{analysis.LoopCount}:{analysis.DiameterLength}:"
+                    + analysis.CriticalPathLength,
+                "dead:" + string.Join(",", analysis.DeadEndRooms),
+                "junction:" + string.Join(",", analysis.JunctionRooms),
+                "critical:" + string.Join(",", analysis.CriticalPath),
+                "outside:" + string.Join(",", analysis.RoomsOutsideCriticalPath)
+            };
             return result;
         }
 

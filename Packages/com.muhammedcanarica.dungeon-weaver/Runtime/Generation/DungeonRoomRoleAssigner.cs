@@ -29,7 +29,10 @@ namespace ProceduralDungeon
             {
                 DungeonGenerator generator = GetComponent<DungeonGenerator>();
                 DungeonGraphBuilder graph = GetComponent<DungeonGraphBuilder>();
-                if (generator == null || graph == null || !graph.IsGraphCurrent || !hasAssignedRoles
+                DungeonGraphAnalysis topology = graph != null ? graph.Analysis : null;
+                if (generator == null || graph == null || !graph.IsGraphCurrent
+                    || topology == null || topology.StartRoomId != startRoomId
+                    || topology.BossRoomId != bossRoomId || !hasAssignedRoles
                     || storedLayoutSignature != CalculateSignature(generator.Rooms, graph.Connections)) return false;
 
                 bool hasStart = false, hasBoss = false;
@@ -53,13 +56,19 @@ namespace ProceduralDungeon
             IReadOnlyList<RoomData> rooms = generator.Rooms;
             if (rooms == null || rooms.Count == 0) { Debug.LogWarning("[DungeonRoomRoleAssigner] No rooms are available.", this); return; }
 
-            RoomData start = rooms[0];
-            for (int i = 1; i < rooms.Count; i++) if (CompareStart(rooms[i], start) < 0) start = rooms[i];
+            RoomData start = FindRoom(rooms, graph.SuggestedStartRoomId)
+                ?? SelectStartCandidate(rooms);
             startRoomId = start.RoomId;
 
             if (rooms.Count == 1)
             {
                 bossRoomId = InvalidRoomId;
+                if (!graph.SetRoleEndpoints(startRoomId, InvalidRoomId))
+                {
+                    ClearValues();
+                    Debug.LogError("[DungeonRoomRoleAssigner] Could not bind the one-room topology analysis.", this);
+                    return;
+                }
                 storedLayoutSignature = CalculateSignature(rooms, graph.Connections);
                 hasAssignedRoles = true;
                 Debug.Log($"[DungeonRoomRoleAssigner] Assigned start room {startRoomId}; no boss room exists in a one-room layout.", this);
@@ -73,9 +82,17 @@ namespace ProceduralDungeon
                 return;
             }
 
-            RoomData boss = null;
-            int bestHops = -1;
+            int minimumHops = graph.MinimumCriticalPathHops(rooms.Count);
+            RoomData boss = FindRoom(rooms, graph.SuggestedBossRoomId);
+            if (boss != null && (!IsEligibleBossForCurrentTier(rooms, startRoomId, boss)
+                || distance[boss.RoomId] < minimumHops)) boss = null;
+            int bestHops = boss != null ? distance[boss.RoomId] : -1;
             long bestWeight = long.MinValue;
+            if (boss != null)
+            {
+                try { bestWeight = CenterWeightSquared(start.Bounds, boss.Bounds); }
+                catch (OverflowException) { ClearValues(); Debug.LogError("[DungeonRoomRoleAssigner] Center distance overflowed.", this); return; }
+            }
             bool hasArenaBoss = HasArenaBossCandidate(rooms, startRoomId);
             bool hasPreferredBoss = !hasArenaBoss && HasBossCandidate(rooms, startRoomId, true);
             bool hasNonLShapeBoss = !hasArenaBoss && !hasPreferredBoss
@@ -83,7 +100,8 @@ namespace ProceduralDungeon
             for (int i = 0; i < rooms.Count; i++)
             {
                 RoomData candidate = rooms[i];
-                if (candidate.RoomId == startRoomId) continue;
+                if (candidate.RoomId == startRoomId || (boss != null
+                    && candidate.RoomId == boss.RoomId)) continue;
                 if (hasArenaBoss && !IsArenaBoss(candidate)) continue;
                 if (hasPreferredBoss && !IsPreferredBoss(candidate)) continue;
                 if (hasNonLShapeBoss && candidate.ShapeType == DungeonRoomShapeType.LShape) continue;
@@ -95,8 +113,21 @@ namespace ProceduralDungeon
                 { boss = candidate; bestHops = hops; bestWeight = weight; }
             }
 
-            if (boss == null || boss.RoomId == startRoomId) { ClearValues(); Debug.LogError("[DungeonRoomRoleAssigner] Could not select a distinct boss room.", this); return; }
+            if (boss == null || boss.RoomId == startRoomId || bestHops < minimumHops)
+            {
+                ClearValues();
+                Debug.LogError($"[DungeonRoomRoleAssigner] Could not select a boss at least {minimumHops} graph hops from Start.", this);
+                return;
+            }
             bossRoomId = boss.RoomId;
+            if (!graph.SetRoleEndpoints(startRoomId, bossRoomId)
+                || graph.Analysis == null
+                || graph.Analysis.CriticalPathLength != bestHops)
+            {
+                ClearValues();
+                Debug.LogError("[DungeonRoomRoleAssigner] Could not bind Start/Boss topology analysis.", this);
+                return;
+            }
             storedLayoutSignature = CalculateSignature(rooms, graph.Connections);
             hasAssignedRoles = true;
             Debug.Log($"[DungeonRoomRoleAssigner] Assigned start room {startRoomId} and boss room {bossRoomId} ({bestHops} graph hops).", this);
@@ -104,6 +135,50 @@ namespace ProceduralDungeon
 
         [ContextMenu("Clear Room Roles")]
         public void ClearRoomRoles() => ClearValues();
+
+        internal static RoomData SelectStartCandidate(IReadOnlyList<RoomData> rooms)
+        {
+            if (rooms == null || rooms.Count == 0) return null;
+            RoomData start = rooms[0];
+            for (int i = 1; i < rooms.Count; i++)
+                if (CompareStart(rooms[i], start) < 0) start = rooms[i];
+            return start;
+        }
+
+        internal static RoomData SelectBossAnchor(IReadOnlyList<RoomData> rooms,
+            RoomData start, int minimumInteriorCells)
+        {
+            if (rooms == null || start == null || rooms.Count < 2) return null;
+            bool hasArena = false;
+            bool hasPreferred = false;
+            for (int i = 0; i < rooms.Count; i++)
+            {
+                RoomData room = rooms[i];
+                if (room.RoomId == start.RoomId) continue;
+                if (IsArenaBoss(room, minimumInteriorCells)) hasArena = true;
+                if (room.ShapeType != DungeonRoomShapeType.LShape
+                    && room.InteriorCellCount >= minimumInteriorCells) hasPreferred = true;
+            }
+
+            RoomData best = null;
+            long bestWeight = long.MinValue;
+            for (int i = 0; i < rooms.Count; i++)
+            {
+                RoomData room = rooms[i];
+                if (room.RoomId == start.RoomId) continue;
+                if (hasArena && !IsArenaBoss(room, minimumInteriorCells)) continue;
+                if (!hasArena && hasPreferred && (room.ShapeType == DungeonRoomShapeType.LShape
+                    || room.InteriorCellCount < minimumInteriorCells)) continue;
+                long weight = CenterWeightSquared(start.Bounds, room.Bounds);
+                if (best == null || weight > bestWeight
+                    || (weight == bestWeight && room.RoomId < best.RoomId))
+                {
+                    best = room;
+                    bestWeight = weight;
+                }
+            }
+            return best;
+        }
 
         private static int CompareStart(RoomData left, RoomData right)
         {
@@ -144,9 +219,33 @@ namespace ProceduralDungeon
 
         private bool IsArenaBoss(RoomData room)
         {
-            return room.Archetype == DungeonRoomArchetype.Arena
+            return IsArenaBoss(room, MinimumBossInteriorCells);
+        }
+
+        private static bool IsArenaBoss(RoomData room, int minimumInteriorCells)
+        {
+            return room != null && room.Archetype == DungeonRoomArchetype.Arena
                 && DungeonRoomArchetypePolicy.IsShapeCompatible(room.Archetype, room.ShapeType)
-                && room.InteriorCellCount >= MinimumBossInteriorCells;
+                && room.InteriorCellCount >= minimumInteriorCells;
+        }
+
+        private bool IsEligibleBossForCurrentTier(IReadOnlyList<RoomData> rooms,
+            int startId, RoomData candidate)
+        {
+            bool hasArena = HasArenaBossCandidate(rooms, startId);
+            if (hasArena) return IsArenaBoss(candidate);
+            bool hasPreferred = HasBossCandidate(rooms, startId, true);
+            if (hasPreferred) return IsPreferredBoss(candidate);
+            bool hasNonLShape = HasBossCandidate(rooms, startId, false);
+            return !hasNonLShape || candidate.ShapeType != DungeonRoomShapeType.LShape;
+        }
+
+        private static RoomData FindRoom(IReadOnlyList<RoomData> rooms, int roomId)
+        {
+            if (rooms == null) return null;
+            for (int i = 0; i < rooms.Count; i++)
+                if (rooms[i] != null && rooms[i].RoomId == roomId) return rooms[i];
+            return null;
         }
 
         private static int StartShapeRank(DungeonRoomShapeType shape)
