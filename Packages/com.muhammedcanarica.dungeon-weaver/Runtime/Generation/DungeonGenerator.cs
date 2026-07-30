@@ -17,6 +17,12 @@ namespace ProceduralDungeon
         [SerializeField] private int minimumRoomSpacing = 2;
         [SerializeField] private int maxPlacementAttempts = 1500;
 
+        [Header("Room Shape Variety")]
+        [SerializeField, Min(0)] private int rectangleWeight = 4;
+        [SerializeField, Min(0)] private int lShapeWeight = 3;
+        [SerializeField, Min(0)] private int crossShapeWeight = 2;
+        [SerializeField, Min(0)] private int alcoveWeight = 2;
+
         [SerializeField, HideInInspector]
         private List<RoomData> rooms = new List<RoomData>();
 
@@ -27,7 +33,12 @@ namespace ProceduralDungeon
         public Vector2Int MaxRoomSize => maxRoomSize;
         public int MinimumRoomSpacing => minimumRoomSpacing;
         public int MaxPlacementAttempts => maxPlacementAttempts;
+        public int RectangleWeight => Mathf.Max(0, rectangleWeight);
+        public int LShapeWeight => Mathf.Max(0, lShapeWeight);
+        public int CrossShapeWeight => Mathf.Max(0, crossShapeWeight);
+        public int AlcoveWeight => Mathf.Max(0, alcoveWeight);
         public IReadOnlyList<RoomData> Rooms => rooms;
+        public long RoomLayoutSignature => CalculateRoomLayoutSignature();
 
         public void SetSeed(int newSeed)
         {
@@ -79,7 +90,7 @@ namespace ProceduralDungeon
                     continue;
                 }
 
-                rooms.Add(new RoomData(rooms.Count, candidate));
+                rooms.Add(CreateRoom(rooms.Count, candidate));
             }
 
             string summary =
@@ -101,6 +112,73 @@ namespace ProceduralDungeon
         {
             EnsureRoomList();
             rooms.Clear();
+        }
+
+        private RoomData CreateRoom(int roomId, RectInt roomBounds)
+        {
+            int rectangle = Mathf.Clamp(rectangleWeight, 0, 1000000);
+            int lShape = Mathf.Clamp(lShapeWeight, 0, 1000000);
+            int cross = Mathf.Clamp(crossShapeWeight, 0, 1000000);
+            int alcove = Mathf.Clamp(alcoveWeight, 0, 1000000);
+            int total = rectangle + lShape + cross + alcove;
+            if (total <= 0) return new RoomData(roomId, roomBounds);
+
+            var shapeRandom = new System.Random(DeriveShapeSeed(seed, roomId, roomBounds));
+            int roll = shapeRandom.Next(total);
+            DungeonRoomShapeType shape;
+            if (roll < rectangle) shape = DungeonRoomShapeType.Rectangle;
+            else if ((roll -= rectangle) < lShape) shape = DungeonRoomShapeType.LShape;
+            else if ((roll -= lShape) < cross) shape = DungeonRoomShapeType.Cross;
+            else shape = DungeonRoomShapeType.Alcove;
+            return DungeonRoomShapeGenerator.CreateRoom(roomId, roomBounds, shape, shapeRandom.Next());
+        }
+
+        private long CalculateRoomLayoutSignature()
+        {
+            const ulong offset = 14695981039346656037UL;
+            ulong hash = offset;
+            AddInt(ref hash, seed);
+            AddInt(ref hash, RectangleWeight);
+            AddInt(ref hash, LShapeWeight);
+            AddInt(ref hash, CrossShapeWeight);
+            AddInt(ref hash, AlcoveWeight);
+            AddInt(ref hash, rooms?.Count ?? 0);
+            if (rooms != null)
+                for (int i = 0; i < rooms.Count; i++) AddLong(ref hash,
+                    rooms[i] != null ? rooms[i].GeometrySignature : long.MinValue);
+            return unchecked((long)hash);
+        }
+
+        private static int DeriveShapeSeed(int dungeonSeed, int roomId, RectInt roomBounds)
+        {
+            unchecked
+            {
+                int hash = dungeonSeed * 486187739 + roomId * 16777619 + (int)0x6D2B79F5;
+                hash = hash * 397 ^ roomBounds.x;
+                hash = hash * 397 ^ roomBounds.y;
+                hash = hash * 397 ^ roomBounds.width;
+                return hash * 397 ^ roomBounds.height;
+            }
+        }
+
+        private static void AddInt(ref ulong hash, int value)
+        {
+            uint bits = unchecked((uint)value);
+            for (int shift = 0; shift < 32; shift += 8)
+            {
+                hash ^= (byte)(bits >> shift);
+                hash = unchecked(hash * 1099511628211UL);
+            }
+        }
+
+        private static void AddLong(ref ulong hash, long value)
+        {
+            ulong bits = unchecked((ulong)value);
+            for (int shift = 0; shift < 64; shift += 8)
+            {
+                hash ^= (byte)(bits >> shift);
+                hash = unchecked(hash * 1099511628211UL);
+            }
         }
 
         private bool TryValidateSettings(out string validationError)

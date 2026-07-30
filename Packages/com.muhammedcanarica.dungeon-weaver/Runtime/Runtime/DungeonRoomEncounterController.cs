@@ -267,8 +267,7 @@ namespace ProceduralDungeon
                 || areaTracker.CurrentRoomId != roomId || trackedActorCollider == null) return false;
             RoomData room = FindRoom(roomId);
             Vector2Int cell = areaTracker.CurrentCell;
-            if (room == null || cell.x <= room.Bounds.xMin || cell.x >= room.Bounds.xMax - 1
-                || cell.y <= room.Bounds.yMin || cell.y >= room.Bounds.yMax - 1) return false;
+            if (room == null || !room.IsInteriorCell(cell)) return false;
             if (!doorRegistry.TryGetDoorsForRoom(roomId,
                 out IReadOnlyList<DungeonDoor> roomDoors)) return false;
             for (int i = 0; i < roomDoors.Count; i++)

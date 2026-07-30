@@ -183,7 +183,7 @@ namespace ProceduralDungeon
                 enemyObject.AddComponent<Rigidbody2D>();
                 enemyObject.AddComponent<CircleCollider2D>();
                 DungeonEnemy enemy = enemyObject.AddComponent<DungeonEnemy>();
-                enemy.Initialize(plan, room.Bounds, trackedActor, areaTracker, encounterController,
+                enemy.Initialize(plan, room, trackedActor, areaTracker, encounterController,
                     runtimeSprite, enemyMoveSpeed);
                 DungeonEnemyContactDamage damage = enemyObject.AddComponent<DungeonEnemyContactDamage>();
                 damage.Initialize(enemy, areaTracker, encounterController, ContactDamage);
@@ -265,13 +265,10 @@ namespace ProceduralDungeon
         private List<Vector2Int> CollectSafeCells(RoomData room)
         {
             var cells = new List<Vector2Int>();
-            for (int y = room.Bounds.yMin; y < room.Bounds.yMax; y++)
+            for (int i = 0; i < room.InteriorCells.Count; i++)
             {
-                for (int x = room.Bounds.xMin; x < room.Bounds.xMax; x++)
-                {
-                    var cell = new Vector2Int(x, y);
-                    if (IsValidFloorCell(cell) && IsOutsideDoorwaySafeAreas(cell)) cells.Add(cell);
-                }
+                Vector2Int cell = room.InteriorCells[i];
+                if (IsValidFloorCell(cell) && IsOutsideDoorwaySafeAreas(cell)) cells.Add(cell);
             }
 
             cells.Sort(CompareCells);

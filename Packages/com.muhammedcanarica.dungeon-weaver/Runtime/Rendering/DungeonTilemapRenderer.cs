@@ -90,7 +90,9 @@ namespace ProceduralDungeon
         private static List<Vector2Int> Floors(IReadOnlyList<RoomData> rooms, IReadOnlyList<CorridorData> corridors, int width)
         {
             var set = new HashSet<Vector2Int>();
-            for (int i = 0; i < rooms.Count; i++) for (int y = rooms[i].Bounds.yMin; y < rooms[i].Bounds.yMax; y++) for (int x = rooms[i].Bounds.xMin; x < rooms[i].Bounds.xMax; x++) set.Add(new Vector2Int(x,y));
+            for (int i = 0; i < rooms.Count; i++)
+                for (int cell = 0; cell < rooms[i].OccupiedCells.Count; cell++)
+                    set.Add(rooms[i].OccupiedCells[cell]);
             int radius = width / 2;
             for (int i = 0; i < corridors.Count; i++) for (int p = 0; p < corridors[i].PathCells.Count; p++)
                 for (int y = corridors[i].PathCells[p].y - radius; y <= corridors[i].PathCells[p].y + radius; y++)
@@ -119,7 +121,7 @@ namespace ProceduralDungeon
         private static long Signature(IReadOnlyList<RoomData> rooms, IReadOnlyList<RoomConnectionData> edges, IReadOnlyList<CorridorData> corridors, int width, int thickness, string floorId, string wallId)
         {
             ulong hash = Offset;
-            for (int i=0;i<rooms.Count;i++){RoomData r=rooms[i];AddInt(ref hash,r.RoomId);AddInt(ref hash,r.Bounds.x);AddInt(ref hash,r.Bounds.y);AddInt(ref hash,r.Bounds.width);AddInt(ref hash,r.Bounds.height);}
+            for (int i=0;i<rooms.Count;i++){RoomData r=rooms[i];AddLong(ref hash,r.GeometrySignature);}
             for(int i=0;i<edges.Count;i++){RoomConnectionData e=edges[i];AddInt(ref hash,e.RoomAId);AddInt(ref hash,e.RoomBId);AddLong(ref hash,e.WeightSquared);AddByte(ref hash,e.IsPrimaryConnection?(byte)1:(byte)0);}
             for(int i=0;i<corridors.Count;i++){CorridorData c=corridors[i];AddInt(ref hash,c.RoomAId);AddInt(ref hash,c.RoomBId);AddByte(ref hash,c.IsPrimaryConnection?(byte)1:(byte)0);AddByte(ref hash,c.UsedFallbackPathfinding?(byte)1:(byte)0);AddInt(ref hash,c.CellCount);for(int p=0;p<c.PathCells.Count;p++){AddInt(ref hash,c.PathCells[p].x);AddInt(ref hash,c.PathCells[p].y);}}
             AddInt(ref hash,width);AddInt(ref hash,thickness);AddString(ref hash,floorId);AddString(ref hash,wallId);return unchecked((long)hash);

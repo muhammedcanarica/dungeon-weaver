@@ -110,11 +110,11 @@ namespace ProceduralDungeon
                 return false;
             }
 
-            var cell = new Vector3Int(start.Bounds.xMin + (start.Bounds.width - 1) / 2,
-                start.Bounds.yMin + (start.Bounds.height - 1) / 2, 0);
-            if (!floorTilemap.HasTile(cell))
+            Vector2Int spawnCell = start.SpawnCell;
+            var cell = new Vector3Int(spawnCell.x, spawnCell.y, 0);
+            if (!start.IsInteriorCell(spawnCell) || !floorTilemap.HasTile(cell))
             {
-                error = "Start room center is not a rendered floor cell.";
+                error = "Start room has no rendered interior spawn cell.";
                 return false;
             }
 

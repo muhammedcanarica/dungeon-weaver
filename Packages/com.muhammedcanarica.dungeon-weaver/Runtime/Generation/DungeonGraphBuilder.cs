@@ -158,7 +158,7 @@ namespace ProceduralDungeon
             {
                 RoomData r = rooms[i];
                 if (r == null) { Add(ref hash, int.MinValue); continue; }
-                Add(ref hash, r.RoomId); Add(ref hash, r.Bounds.x); Add(ref hash, r.Bounds.y); Add(ref hash, r.Bounds.width); Add(ref hash, r.Bounds.height);
+                AddLong(ref hash, r.GeometrySignature);
             }
             return unchecked((long)hash);
         }
@@ -167,6 +167,16 @@ namespace ProceduralDungeon
         {
             uint bits = unchecked((uint)value);
             for (int shift = 0; shift < 32; shift += 8) { hash ^= (byte)(bits >> shift); hash = unchecked(hash * Prime); }
+        }
+
+        private static void AddLong(ref ulong hash, long value)
+        {
+            ulong bits = unchecked((ulong)value);
+            for (int shift = 0; shift < 64; shift += 8)
+            {
+                hash ^= (byte)(bits >> shift);
+                hash = unchecked(hash * Prime);
+            }
         }
 
         private void EnsureList()

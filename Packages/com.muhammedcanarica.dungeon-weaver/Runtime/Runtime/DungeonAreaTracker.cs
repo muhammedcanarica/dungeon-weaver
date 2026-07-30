@@ -128,19 +128,16 @@ namespace ProceduralDungeon
                     return false;
                 }
 
-                for (int y = room.Bounds.yMin; y < room.Bounds.yMax; y++)
+                for (int cellIndex = 0; cellIndex < room.OccupiedCells.Count; cellIndex++)
                 {
-                    for (int x = room.Bounds.xMin; x < room.Bounds.xMax; x++)
+                    Vector2Int cell = room.OccupiedCells[cellIndex];
+                    if (roomByCell.ContainsKey(cell))
                     {
-                        Vector2Int cell = new Vector2Int(x, y);
-                        if (roomByCell.ContainsKey(cell))
-                        {
-                            FailBuild($"Room lookup contains an overlapping cell at {cell}.");
-                            return false;
-                        }
-
-                        roomByCell.Add(cell, room.RoomId);
+                        FailBuild($"Room lookup contains an overlapping cell at {cell}.");
+                        return false;
                     }
+
+                    roomByCell.Add(cell, room.RoomId);
                 }
             }
 

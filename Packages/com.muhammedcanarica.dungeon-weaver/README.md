@@ -21,7 +21,7 @@ You can also declare the same URL in the consuming project's `Packages/manifest.
 
 ## Main components
 
-- `DungeonGenerator`: deterministic room placement from a seed.
+- `DungeonGenerator`: deterministic room placement and weighted Rectangle, L, Cross, and Alcove geometry from a seed.
 - `DungeonGraphBuilder`: deterministic connected room graph.
 - `DungeonCorridorBuilder`: corridor floor-cell generation.
 - `DungeonDoorwayBuilder`: doorway and corridor entrance data.
@@ -61,7 +61,7 @@ Calling `GenerateDungeon` again performs deterministic regeneration and clears t
 
 ## Determinism
 
-Generation uses stable ordering and explicit seeds. The same package version, settings, and seed produce the same room, graph, corridor, doorway, door, and Core runtime layout.
+Generation uses stable ordering and explicit seeds. The same package version, settings, and seed produce the same room bounds, shape types, occupied cells, graph, corridor, doorway, door, and Core runtime layout. Shape weights are configured on `DungeonGenerator`; Rectangle remains enabled by default alongside L, Cross, and Alcove rooms.
 
 ## Encounter integration
 

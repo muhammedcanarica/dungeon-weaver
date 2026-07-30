@@ -11,6 +11,8 @@ namespace ProceduralDungeon
         private const ulong Offset = 14695981039346656037UL;
         private const ulong Prime = 1099511628211UL;
 
+        [SerializeField, Min(1)] private int minimumBossInteriorCells = 24;
+
         [SerializeField, HideInInspector] private int startRoomId = InvalidRoomId;
         [SerializeField, HideInInspector] private int bossRoomId = InvalidRoomId;
         [SerializeField, HideInInspector] private long storedLayoutSignature;
@@ -19,6 +21,7 @@ namespace ProceduralDungeon
         public int StartRoomId => startRoomId;
         public int BossRoomId => bossRoomId;
         public bool HasAssignedRoles => hasAssignedRoles;
+        public int MinimumBossInteriorCells => Mathf.Max(1, minimumBossInteriorCells);
 
         public bool IsRoleDataCurrent
         {
@@ -73,10 +76,14 @@ namespace ProceduralDungeon
             RoomData boss = null;
             int bestHops = -1;
             long bestWeight = long.MinValue;
+            bool hasPreferredBoss = HasBossCandidate(rooms, startRoomId, true);
+            bool hasNonLShapeBoss = !hasPreferredBoss && HasBossCandidate(rooms, startRoomId, false);
             for (int i = 0; i < rooms.Count; i++)
             {
                 RoomData candidate = rooms[i];
                 if (candidate.RoomId == startRoomId) continue;
+                if (hasPreferredBoss && !IsPreferredBoss(candidate)) continue;
+                if (hasNonLShapeBoss && candidate.ShapeType == DungeonRoomShapeType.LShape) continue;
                 int hops = distance[candidate.RoomId];
                 long weight;
                 try { weight = CenterWeightSquared(start.Bounds, candidate.Bounds); }
@@ -97,8 +104,40 @@ namespace ProceduralDungeon
 
         private static int CompareStart(RoomData left, RoomData right)
         {
-            int c = left.Bounds.xMin.CompareTo(right.Bounds.xMin); if (c != 0) return c;
+            int c = StartShapeRank(left.ShapeType).CompareTo(StartShapeRank(right.ShapeType));
+            if (c != 0) return c;
+            c = left.Bounds.xMin.CompareTo(right.Bounds.xMin); if (c != 0) return c;
             c = left.Bounds.yMin.CompareTo(right.Bounds.yMin); return c != 0 ? c : left.RoomId.CompareTo(right.RoomId);
+        }
+
+        private bool HasBossCandidate(IReadOnlyList<RoomData> rooms, int startId,
+            bool requirePreferred)
+        {
+            for (int i = 0; i < rooms.Count; i++)
+            {
+                RoomData room = rooms[i];
+                if (room.RoomId == startId) continue;
+                if (requirePreferred ? IsPreferredBoss(room)
+                    : room.ShapeType != DungeonRoomShapeType.LShape) return true;
+            }
+            return false;
+        }
+
+        private bool IsPreferredBoss(RoomData room)
+        {
+            return room.ShapeType != DungeonRoomShapeType.LShape
+                && room.InteriorCellCount >= MinimumBossInteriorCells;
+        }
+
+        private static int StartShapeRank(DungeonRoomShapeType shape)
+        {
+            switch (shape)
+            {
+                case DungeonRoomShapeType.Rectangle: return 0;
+                case DungeonRoomShapeType.Alcove: return 1;
+                case DungeonRoomShapeType.Cross: return 2;
+                default: return 3;
+            }
         }
 
         private static bool TryCalculateHopDistances(IReadOnlyList<RoomData> rooms, IReadOnlyList<RoomConnectionData> edges, int start,
@@ -129,10 +168,11 @@ namespace ProceduralDungeon
             return checked(dx * dx + dy * dy);
         }
 
-        private static long CalculateSignature(IReadOnlyList<RoomData> rooms, IReadOnlyList<RoomConnectionData> edges)
+        private long CalculateSignature(IReadOnlyList<RoomData> rooms, IReadOnlyList<RoomConnectionData> edges)
         {
             ulong hash = Offset;
-            if (rooms != null) for (int i=0;i<rooms.Count;i++){RoomData r=rooms[i];if(r==null){AddInt(ref hash,int.MinValue);continue;}AddInt(ref hash,r.RoomId);AddInt(ref hash,r.Bounds.x);AddInt(ref hash,r.Bounds.y);AddInt(ref hash,r.Bounds.width);AddInt(ref hash,r.Bounds.height);}
+            AddInt(ref hash, MinimumBossInteriorCells);
+            if (rooms != null) for (int i=0;i<rooms.Count;i++){RoomData r=rooms[i];if(r==null){AddInt(ref hash,int.MinValue);continue;}AddLong(ref hash,r.GeometrySignature);}
             if (edges != null) for(int i=0;i<edges.Count;i++){RoomConnectionData e=edges[i];if(e==null){AddInt(ref hash,int.MinValue);continue;}AddInt(ref hash,e.RoomAId);AddInt(ref hash,e.RoomBId);AddLong(ref hash,e.WeightSquared);AddByte(ref hash,e.IsPrimaryConnection?(byte)1:(byte)0);}
             return unchecked((long)hash);
         }

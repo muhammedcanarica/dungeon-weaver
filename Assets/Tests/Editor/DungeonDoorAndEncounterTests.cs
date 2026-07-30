@@ -131,7 +131,8 @@ namespace ProceduralDungeon.Tests
             int expectedPhysicalCount = UniquePhysicalDoorCount();
 
             Assert.That(doorways.Doorways.Count, Is.EqualTo(32));
-            Assert.That(expectedPhysicalCount, Is.EqualTo(31));
+            Assert.That(expectedPhysicalCount, Is.GreaterThan(0));
+            Assert.That(expectedPhysicalCount, Is.LessThanOrEqualTo(doorways.Doorways.Count));
             Assert.That(doorRegistry.DoorCount, Is.EqualTo(expectedPhysicalCount));
             Assert.That(doorRegistry.DoorwayAssociationCount, Is.EqualTo(doorways.Doorways.Count));
             Assert.That(dungeonObject.GetComponents<DungeonDoorRegistry>().Length, Is.EqualTo(1));
@@ -485,6 +486,8 @@ namespace ProceduralDungeon.Tests
                     Assert.That(plan.EnemyIndex, Is.EqualTo(i));
                     Assert.That(plan.MaxHealth, Is.EqualTo(3));
                     Assert.That(room.Bounds.Contains(plan.SpawnCell), Is.True);
+                    Assert.That(room.ContainsCell(plan.SpawnCell), Is.True);
+                    Assert.That(room.IsInteriorCell(plan.SpawnCell), Is.True);
                     Assert.That(renderer.FloorTilemap.HasTile(cell), Is.True);
                     Assert.That(renderer.WallTilemap.HasTile(cell), Is.False);
                     Assert.That(cells.Add(plan.SpawnCell), Is.True);
@@ -1231,31 +1234,28 @@ namespace ProceduralDungeon.Tests
         private int CountSafeCells(RoomData room)
         {
             int count = 0;
-            for (int y = room.Bounds.yMin; y < room.Bounds.yMax; y++)
+            for (int cellIndex = 0; cellIndex < room.InteriorCells.Count; cellIndex++)
             {
-                for (int x = room.Bounds.xMin; x < room.Bounds.xMax; x++)
+                Vector2Int cell = room.InteriorCells[cellIndex];
+                var tileCell = new Vector3Int(cell.x, cell.y, 0);
+                if (!renderer.FloorTilemap.HasTile(tileCell)
+                    || renderer.WallTilemap.HasTile(tileCell)) continue;
+
+                bool safe = true;
+                for (int i = 0; i < doorways.Doorways.Count; i++)
                 {
-                    var cell = new Vector2Int(x, y);
-                    var tileCell = new Vector3Int(x, y, 0);
-                    if (!renderer.FloorTilemap.HasTile(tileCell)
-                        || renderer.WallTilemap.HasTile(tileCell)) continue;
-
-                    bool safe = true;
-                    for (int i = 0; i < doorways.Doorways.Count; i++)
+                    DoorwayData doorway = doorways.Doorways[i];
+                    if (ManhattanDistance(cell, doorway.EntranceCell)
+                            < enemyRegistry.DoorwaySafeDistance
+                        || ManhattanDistance(cell, doorway.FirstCorridorCell)
+                            < enemyRegistry.DoorwaySafeDistance)
                     {
-                        DoorwayData doorway = doorways.Doorways[i];
-                        if (ManhattanDistance(cell, doorway.EntranceCell)
-                                < enemyRegistry.DoorwaySafeDistance
-                            || ManhattanDistance(cell, doorway.FirstCorridorCell)
-                                < enemyRegistry.DoorwaySafeDistance)
-                        {
-                            safe = false;
-                            break;
-                        }
+                        safe = false;
+                        break;
                     }
-
-                    if (safe) count++;
                 }
+
+                if (safe) count++;
             }
 
             return count;

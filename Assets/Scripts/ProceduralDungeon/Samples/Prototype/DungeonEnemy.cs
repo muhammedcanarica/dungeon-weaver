@@ -16,6 +16,7 @@ namespace ProceduralDungeon
         private DungeonAreaTracker areaTracker;
         private DungeonRoomEncounterController encounterController;
         private RectInt roomBounds;
+        private RoomData roomData;
         private Vector3 normalScale;
         private float moveSpeed;
         private float hitFeedbackUntil;
@@ -29,7 +30,7 @@ namespace ProceduralDungeon
 
         public event Action<DungeonEnemy> Died;
 
-        internal void Initialize(DungeonEnemySpawnPlan plan, RectInt bounds, Transform target,
+        internal void Initialize(DungeonEnemySpawnPlan plan, RoomData room, Transform target,
             DungeonAreaTracker tracker, DungeonRoomEncounterController encounters,
             Sprite sprite, float speed)
         {
@@ -42,7 +43,8 @@ namespace ProceduralDungeon
             CurrentHealth = MaxHealth;
             IsAlive = true;
             deathRaised = false;
-            roomBounds = bounds;
+            roomData = room;
+            roomBounds = room != null ? room.Bounds : default;
             player = target;
             areaTracker = tracker;
             encounterController = encounters;
@@ -60,6 +62,14 @@ namespace ProceduralDungeon
             transform.localScale = new Vector3(0.78f, 0.78f, 1f);
             normalScale = transform.localScale;
             initialized = true;
+        }
+
+        internal void Initialize(DungeonEnemySpawnPlan plan, RectInt bounds, Transform target,
+            DungeonAreaTracker tracker, DungeonRoomEncounterController encounters,
+            Sprite sprite, float speed)
+        {
+            Initialize(plan, new RoomData(plan.RoomId, bounds), target, tracker,
+                encounters, sprite, speed);
         }
 
         public bool TakeDamage(int amount)
@@ -108,6 +118,11 @@ namespace ProceduralDungeon
                 moveSpeed * deltaTime);
             next.x = Mathf.Clamp(next.x, roomBounds.xMin + 0.5f, roomBounds.xMax - 0.5f);
             next.y = Mathf.Clamp(next.y, roomBounds.yMin + 0.5f, roomBounds.yMax - 0.5f);
+            if (roomData != null && !roomData.ContainsCell(Vector2Int.FloorToInt(next)))
+            {
+                body.linearVelocity = Vector2.zero;
+                return false;
+            }
             if (Application.isPlaying) body.MovePosition(next);
             else body.position = next;
             return true;

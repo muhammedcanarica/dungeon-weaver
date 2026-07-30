@@ -31,7 +31,10 @@ namespace ProceduralDungeon.Tests
             {
                 "UnityEngine.InputSystem", "UnityEngine.UI", "Keyboard",
                 "InputField", "TopDownPlayerController", "TopDownPlayerAttack",
-                "DungeonEnemyEncounterRegistry", "DungeonEnemy", "DungeonRuntimeInputFocus"
+                "DungeonEnemyEncounterRegistry", "DungeonEnemy", "DungeonEnemyContactDamage",
+                "PrototypePlayerHealth", "PrototypeHealthUI", "PrototypePlayerDamageFeedback",
+                "DungeonPrototypeDeathRespawn", "DungeonEncounterDebugInput",
+                "DungeonRuntimeInputFocus", "DungeonRuntimeUI"
             };
 
             string[] coreFiles = Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories)

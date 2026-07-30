@@ -34,11 +34,14 @@ namespace ProceduralDungeon
                 DungeonGenerator generator = GetComponent<DungeonGenerator>();
                 DungeonGraphBuilder graph = GetComponent<DungeonGraphBuilder>();
                 DungeonCorridorBuilder corridors = GetComponent<DungeonCorridorBuilder>();
+                DungeonTilemapRenderer renderer = GetComponent<DungeonTilemapRenderer>();
+                int doorwaySpan = renderer != null ? renderer.CorridorWidth : 3;
                 return generator != null && graph != null && corridors != null
                     && corridors.IsCorridorDataCurrent && hasBuiltDoorways
                     && builtSourceSignature == SourceSignature(generator.Rooms, graph.Connections, corridors.Corridors)
                     && doorwaySignature == Signature(Doorways)
-                    && Validate(generator.Rooms, graph.Connections, corridors.Corridors, Doorways, out _);
+                    && Validate(generator.Rooms, graph.Connections, corridors.Corridors,
+                        Doorways, doorwaySpan, out _);
             }
         }
 
@@ -48,6 +51,8 @@ namespace ProceduralDungeon
             DungeonGenerator generator = GetComponent<DungeonGenerator>();
             DungeonGraphBuilder graph = GetComponent<DungeonGraphBuilder>();
             DungeonCorridorBuilder corridors = GetComponent<DungeonCorridorBuilder>();
+            DungeonTilemapRenderer renderer = GetComponent<DungeonTilemapRenderer>();
+            int doorwaySpan = renderer != null ? renderer.CorridorWidth : 3;
             EnsureList();
             Invalidate();
 
@@ -89,13 +94,15 @@ namespace ProceduralDungeon
                     return;
                 }
 
-                if (!TryCreateDoorway(connectionIndex, roomA, corridor.PathCells, out DoorwayData doorwayA, out string errorA))
+                if (!TryCreateDoorway(connectionIndex, roomA, corridor.PathCells,
+                    doorwaySpan, out DoorwayData doorwayA, out string errorA))
                 {
                     Fail($"Could not derive room {roomA.RoomId} doorway for connection {connectionIndex}: {errorA}");
                     return;
                 }
 
-                if (!TryCreateDoorway(connectionIndex, roomB, corridor.PathCells, out DoorwayData doorwayB, out string errorB))
+                if (!TryCreateDoorway(connectionIndex, roomB, corridor.PathCells,
+                    doorwaySpan, out DoorwayData doorwayB, out string errorB))
                 {
                     Fail($"Could not derive room {roomB.RoomId} doorway for connection {connectionIndex}: {errorB}");
                     return;
@@ -105,7 +112,8 @@ namespace ProceduralDungeon
                 doorways.Add(doorwayB);
             }
 
-            if (!Validate(generator.Rooms, graph.Connections, corridors.Corridors, Doorways, out string validationError))
+            if (!Validate(generator.Rooms, graph.Connections, corridors.Corridors,
+                Doorways, doorwaySpan, out string validationError))
             {
                 Fail(validationError);
                 return;
@@ -136,7 +144,8 @@ namespace ProceduralDungeon
             }
         }
 
-        private static bool TryCreateDoorway(int connectionIndex, RoomData room, IReadOnlyList<Vector2Int> path,
+        private static bool TryCreateDoorway(int connectionIndex, RoomData room,
+            IReadOnlyList<Vector2Int> path, int doorwaySpan,
             out DoorwayData doorway, out string error)
         {
             doorway = null;
@@ -147,8 +156,8 @@ namespace ProceduralDungeon
                 return false;
             }
 
-            bool firstBelongsToRoom = IsBoundary(room.Bounds, path[0]);
-            bool lastBelongsToRoom = IsBoundary(room.Bounds, path[path.Count - 1]);
+            bool firstBelongsToRoom = room.IsOuterBoundaryCell(path[0]);
+            bool lastBelongsToRoom = room.IsOuterBoundaryCell(path[path.Count - 1]);
             if (firstBelongsToRoom == lastBelongsToRoom)
             {
                 error = $"Path endpoints do not identify exactly one boundary cell for room {room.RoomId}.";
@@ -158,7 +167,9 @@ namespace ProceduralDungeon
             Vector2Int entrance = firstBelongsToRoom ? path[0] : path[path.Count - 1];
             Vector2Int firstCorridor = firstBelongsToRoom ? path[1] : path[path.Count - 2];
             Vector2Int offset = firstCorridor - entrance;
-            if (room.Bounds.Contains(firstCorridor) || !TryDirection(offset, out DoorwayDirection direction))
+            if (room.ContainsCell(firstCorridor)
+                || !room.CanPlaceDoorway(entrance, firstCorridor, doorwaySpan)
+                || !TryDirection(offset, out DoorwayDirection direction))
             {
                 error = $"Room {room.RoomId} doorway does not continue to a cardinal outside corridor cell.";
                 return false;
@@ -188,7 +199,8 @@ namespace ProceduralDungeon
         }
 
         private static bool Validate(IReadOnlyList<RoomData> rooms, IReadOnlyList<RoomConnectionData> connections,
-            IReadOnlyList<CorridorData> corridors, IReadOnlyList<DoorwayData> records, out string error)
+            IReadOnlyList<CorridorData> corridors, IReadOnlyList<DoorwayData> records,
+            int doorwaySpan, out string error)
         {
             if (rooms == null || connections == null || corridors == null || records == null
                 || corridors.Count != connections.Count || records.Count != connections.Count * 2)
@@ -231,9 +243,12 @@ namespace ProceduralDungeon
                 long key = ((long)doorway.ConnectionIndex << 32) ^ (uint)doorway.RoomId;
                 Vector2Int offset = DirectionOffset(doorway.OutwardDirection);
                 CorridorData corridor = FindCorridor(corridors, connection);
-                if (!seen.Add(key) || !IsBoundary(room.Bounds, doorway.EntranceCell) || offset == Vector2Int.zero
+                if (!seen.Add(key) || !room.IsOuterBoundaryCell(doorway.EntranceCell)
+                    || offset == Vector2Int.zero
                     || doorway.FirstCorridorCell != doorway.EntranceCell + offset
-                    || room.Bounds.Contains(doorway.FirstCorridorCell) || corridor == null
+                    || room.ContainsCell(doorway.FirstCorridorCell)
+                    || !room.CanPlaceDoorway(doorway.EntranceCell,
+                        doorway.FirstCorridorCell, doorwaySpan) || corridor == null
                     || !ContainsStep(corridor.PathCells, doorway.EntranceCell, doorway.FirstCorridorCell))
                 {
                     error = $"Doorway geometry is invalid at index {i}.";
@@ -287,12 +302,6 @@ namespace ProceduralDungeon
             return true;
         }
 
-        private static bool IsBoundary(RectInt bounds, Vector2Int cell)
-        {
-            return bounds.Contains(cell) && (cell.x == bounds.xMin || cell.x == bounds.xMax - 1
-                || cell.y == bounds.yMin || cell.y == bounds.yMax - 1);
-        }
-
         private static long SourceSignature(IReadOnlyList<RoomData> rooms, IReadOnlyList<RoomConnectionData> connections,
             IReadOnlyList<CorridorData> corridors)
         {
@@ -301,8 +310,7 @@ namespace ProceduralDungeon
             {
                 RoomData room = rooms[i];
                 if (room == null) { AddInt(ref hash, int.MinValue); continue; }
-                AddInt(ref hash, room.RoomId); AddInt(ref hash, room.Bounds.x); AddInt(ref hash, room.Bounds.y);
-                AddInt(ref hash, room.Bounds.width); AddInt(ref hash, room.Bounds.height);
+                AddLong(ref hash, room.GeometrySignature);
             }
 
             if (connections != null) for (int i = 0; i < connections.Count; i++)

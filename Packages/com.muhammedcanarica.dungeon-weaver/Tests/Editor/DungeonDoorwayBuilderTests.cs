@@ -151,10 +151,14 @@ namespace ProceduralDungeon.Tests
                 RoomConnectionData connection = graph.Connections[doorway.ConnectionIndex];
                 Assert.That(doorway.RoomId == connection.RoomAId || doorway.RoomId == connection.RoomBId, Is.True);
                 Assert.That(IsBoundary(roomsById[doorway.RoomId].Bounds, doorway.EntranceCell), Is.True);
+                Assert.That(roomsById[doorway.RoomId].IsBoundaryCell(doorway.EntranceCell), Is.True);
+                Assert.That(roomsById[doorway.RoomId].CanPlaceDoorway(doorway.EntranceCell,
+                    doorway.FirstCorridorCell, renderer.CorridorWidth), Is.True);
                 Assert.That(Enum.IsDefined(typeof(DoorwayDirection), doorway.OutwardDirection), Is.True);
                 Assert.That(doorway.FirstCorridorCell,
                     Is.EqualTo(doorway.EntranceCell + DungeonDoorwayBuilder.DirectionOffset(doorway.OutwardDirection)));
                 Assert.That(roomsById[doorway.RoomId].Bounds.Contains(doorway.FirstCorridorCell), Is.False);
+                Assert.That(roomsById[doorway.RoomId].ContainsCell(doorway.FirstCorridorCell), Is.False);
                 Assert.That(CorridorContainsStep(connection, doorway.EntranceCell, doorway.FirstCorridorCell), Is.True);
                 Assert.That(unique.Add(((long)doorway.ConnectionIndex << 32) ^ (uint)doorway.RoomId), Is.True);
                 perConnection[doorway.ConnectionIndex]++;
@@ -176,6 +180,107 @@ namespace ProceduralDungeon.Tests
                 Assert.That(floorTilemap.HasTile(position), Is.True, $"Doorway {i} is missing from Floor Tilemap.");
                 Assert.That(wallTilemap.HasTile(position), Is.False, $"Doorway {i} is blocked by Wall Tilemap.");
             }
+        }
+
+        [Test]
+        public void ShapeVoids_AreNotRenderedAndWallsFollowOccupiedGeometry()
+        {
+            Build(12345, true);
+            bool foundUnrenderedVoid = false;
+            bool foundShapeWall = false;
+            Vector2Int[] directions =
+            {
+                Vector2Int.right, Vector2Int.up, Vector2Int.left, Vector2Int.down
+            };
+
+            for (int roomIndex = 0; roomIndex < generator.Rooms.Count; roomIndex++)
+            {
+                RoomData room = generator.Rooms[roomIndex];
+                if (room.ShapeType == DungeonRoomShapeType.Rectangle) continue;
+                for (int y = room.Bounds.yMin; y < room.Bounds.yMax; y++)
+                {
+                    for (int x = room.Bounds.xMin; x < room.Bounds.xMax; x++)
+                    {
+                        var cell = new Vector2Int(x, y);
+                        if (!room.ContainsCell(cell)
+                            && !floorTilemap.HasTile(new Vector3Int(x, y, 0))) foundUnrenderedVoid = true;
+                    }
+                }
+
+                for (int boundaryIndex = 0; boundaryIndex < room.BoundaryCells.Count; boundaryIndex++)
+                {
+                    Vector2Int boundary = room.BoundaryCells[boundaryIndex];
+                    for (int direction = 0; direction < directions.Length; direction++)
+                    {
+                        Vector2Int outside = boundary + directions[direction];
+                        var tileCell = new Vector3Int(outside.x, outside.y, 0);
+                        if (!room.ContainsCell(outside) && !floorTilemap.HasTile(tileCell)
+                            && wallTilemap.HasTile(tileCell)) foundShapeWall = true;
+                    }
+                }
+            }
+
+            Assert.That(foundUnrenderedVoid, Is.True,
+                "No non-rectangular bounding-box void remained empty on the Tilemap.");
+            Assert.That(foundShapeWall, Is.True,
+                "No wall cell was found following a non-rectangular room boundary.");
+        }
+
+        [Test]
+        public void Corridors_ConnectFlatShapeBoundariesWithoutCrossingRoomCells()
+        {
+            Build(12345, false);
+            var roomsById = RoomsById();
+            for (int corridorIndex = 0; corridorIndex < corridors.Corridors.Count; corridorIndex++)
+            {
+                CorridorData corridor = corridors.Corridors[corridorIndex];
+                RoomData roomA = roomsById[corridor.RoomAId];
+                RoomData roomB = roomsById[corridor.RoomBId];
+                Assert.That(roomA.CanPlaceDoorway(corridor.PathCells[0],
+                    corridor.PathCells[1], 3), Is.True);
+                Assert.That(roomB.CanPlaceDoorway(corridor.PathCells[corridor.PathCells.Count - 1],
+                    corridor.PathCells[corridor.PathCells.Count - 2], 3), Is.True);
+                for (int pathIndex = 1; pathIndex < corridor.PathCells.Count - 1; pathIndex++)
+                {
+                    for (int roomIndex = 0; roomIndex < generator.Rooms.Count; roomIndex++)
+                        Assert.That(generator.Rooms[roomIndex].ContainsCell(
+                            corridor.PathCells[pathIndex]), Is.False,
+                            $"Corridor {corridorIndex} crosses room {generator.Rooms[roomIndex].RoomId}.");
+                }
+            }
+        }
+
+        [Test]
+        public void ActorSpawnsOnStartRoomInteriorCell()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            RoomData start = FindRoom(roles.StartRoomId);
+            Vector3Int actorCell3 = floorTilemap.WorldToCell(playerObject.transform.position);
+            var actorCell = new Vector2Int(actorCell3.x, actorCell3.y);
+
+            Assert.That(start.IsInteriorCell(actorCell), Is.True);
+            Assert.That(floorTilemap.HasTile(actorCell3), Is.True);
+            Assert.That(wallTilemap.HasTile(actorCell3), Is.False);
+        }
+
+        [Test]
+        public void RoundTripSeeds_RestoreRoomShapesAndCurrentTilemap()
+        {
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+            long firstRooms = generator.RoomLayoutSignature;
+            long firstDoorways = doorways.DoorwaySignature;
+            int firstFloors = renderer.FloorCellCount;
+            int firstWalls = renderer.WallCellCount;
+
+            Assert.That(runtime.GenerateDungeon(54321), Is.True);
+            Assert.That(generator.RoomLayoutSignature, Is.Not.EqualTo(firstRooms));
+            Assert.That(runtime.GenerateDungeon(12345), Is.True);
+
+            Assert.That(generator.RoomLayoutSignature, Is.EqualTo(firstRooms));
+            Assert.That(doorways.DoorwaySignature, Is.EqualTo(firstDoorways));
+            Assert.That(renderer.FloorCellCount, Is.EqualTo(firstFloors));
+            Assert.That(renderer.WallCellCount, Is.EqualTo(firstWalls));
+            Assert.That(renderer.IsTilemapCurrent, Is.True);
         }
 
         [Test]
@@ -262,6 +367,14 @@ namespace ProceduralDungeon.Tests
             var result = new Dictionary<int, RoomData>();
             for (int i = 0; i < generator.Rooms.Count; i++) result.Add(generator.Rooms[i].RoomId, generator.Rooms[i]);
             return result;
+        }
+
+        private RoomData FindRoom(int roomId)
+        {
+            for (int i = 0; i < generator.Rooms.Count; i++)
+                if (generator.Rooms[i].RoomId == roomId) return generator.Rooms[i];
+            Assert.Fail($"Room {roomId} was not found.");
+            return null;
         }
 
         private bool CorridorContainsStep(RoomConnectionData connection, Vector2Int a, Vector2Int b)

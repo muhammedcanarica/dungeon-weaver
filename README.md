@@ -5,6 +5,7 @@ DungeonWeaver, Unity 6 ile geliştirilen seed tabanlı ve tekrar üretilebilir b
 ## Mevcut özellikler
 
 - Aynı seed ile aynı oda, graph, koridor, doorway, kapı ve enemy planı üretilir.
+- Odalar deterministik `Rectangle`, `LShape`, `Cross` ve `Alcove` geometrileri kullanır; gerçek occupied/interior/boundary hücreleri rendering, doorway ve spawn sistemlerine taşınır.
 - Varsayılan `12345` seed değeri 15 oda üretir; odalar 8x8–14x12 aralığındadır.
 - Koridor genişliği 3 hücredir ve fiziksel kapılar açıklığın tamamını kapatır.
 - Start, Normal ve Boss oda rolleri deterministik atanır.
@@ -12,6 +13,17 @@ DungeonWeaver, Unity 6 ile geliştirilen seed tabanlı ve tekrar üretilebilir b
 - Doorway girişinde encounter pending olur; actor güvenli iç hücreye ulaştığında oda kilitlenir.
 - Sample prototipi WASD/yön tuşları/gamepad hareketi, `Space` saldırısı, enemy spawn ve `C` debug clear davranışını sağlar.
 - Runtime seed UI yeni seed üretimini ve son başarılı seed ile regenerate işlemini destekler.
+- `PrototypePlayerHealth` can, invulnerability, damage ve death durumlarını yönetir.
+- Enemy contact damage yalnızca aktif Locked encounter içinde hasar verir; oyuncu damage feedback alır.
+- Death sonrasında aynı başarılı seed yeniden üretilir, oyuncu respawn olur ve gameplay yeniden etkinleştirilir.
+- `PrototypeHealthUI` oyuncu canını runtime segmentleriyle gösterir.
+
+## Katman sınırı
+
+- **Core package:** `Packages/com.muhammedcanarica.dungeon-weaver`
+- **Prototype/demo:** `Assets/Scripts/ProceduralDungeon/Samples/Prototype`
+
+Health, combat, enemy implementation ve gameplay UI yalnızca Prototype katmanındadır. Prototype'ın Core'a bağımlı olması beklenen yöndür; Core, Prototype assembly'sine veya bu gameplay sistemlerine bağımlı değildir.
 
 ## Kod ve assembly yapısı
 
@@ -42,11 +54,11 @@ Assets/Tests/Editor/
 
 ### DungeonWeaver.Core
 
-Core; data modelleri, generation, graph, corridor, doorway, room role, Tilemap, area tracking, exploration state, fiziksel kapılar, genel encounter lifecycle, actor spawn ve runtime generation pipeline sistemlerini içerir.
+Core; shape-aware room data ve generation, graph, corridor, doorway, room role, Tilemap, area tracking, exploration state, fiziksel kapılar, genel encounter lifecycle, actor spawn ve runtime generation pipeline sistemlerini içerir. `DungeonGenerator` üzerindeki dört shape weight alanı çeşitliliği ayarlar; aynı seed ve aynı ayarlar aynı gerçek oda hücrelerini üretir.
 
 Core doğrudan Input System, Unity UI, prototype player controller, player attack veya enemy sınıflarına referans vermez. Takip edilen varlık `Transform` ve `Collider2D` üzerinden bağlanır. `DungeonRoomEncounterController.TryClearRoom` ve `TryClearActiveRoom` API’leri enemy, puzzle, timer, boss veya başka bir oyun sisteminden çağrılabilir.
 
-Core kendi başına player combat, enemy AI veya oyun içi UI sağlamaz.
+Core kendi başına player health, combat, enemy AI, death/respawn veya oyun içi UI sağlamaz; bu sistemler Prototype/demo katmanındadır.
 
 ### DungeonWeaver.Samples.Prototype
 
@@ -54,6 +66,8 @@ Samples/Prototype assembly’si Core üzerine kurulmuş örnek oyundur. Şunlar�
 
 - `TopDownPlayerController` ve `TopDownPlayerAttack`
 - `DungeonEnemy`, deterministik spawn planları ve `DungeonEnemyEncounterRegistry`
+- `PrototypePlayerHealth`, `DungeonEnemyContactDamage` ve `PrototypePlayerDamageFeedback`
+- `DungeonPrototypeDeathRespawn` ve `PrototypeHealthUI`
 - `DungeonPrototypeRuntimeAdapter`
 - `DungeonEncounterDebugInput`
 - Runtime seed UI ve input-focus yardımcısı
@@ -99,4 +113,4 @@ Paket yalnızca Core Runtime ve Editor entegrasyonunu getirir. Repository'nin `A
 
 ## Kapsam dışı
 
-Player health/death, enemy damage, gelişmiş boss davranışı, loot, minimap, save/load ve envanter bu prototipin kapsamında değildir.
+Gelişmiş boss davranışı, loot, minimap, save/load ve envanter bu prototipin kapsamında değildir.
